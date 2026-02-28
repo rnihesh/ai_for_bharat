@@ -10,7 +10,7 @@ from tools.location_tools import LocationTools
 from tools.weather_tools import WeatherTools
 from tools.history_tools import HistoryTools
 from tools.issue_tools import IssueTools
-from services.firebase import firebase_service
+from services.dynamodb import dynamodb_service
 
 
 class PriorityAgent(BaseAgent):
@@ -119,21 +119,21 @@ class PriorityAgent(BaseAgent):
             factors=factors,
         )
 
-        # Save priority to Firebase if we have an issue ID
+        # Save priority to DynamoDB if we have an issue ID
         if issue_id:
             try:
-                saved = await firebase_service.update_issue_priority(
+                saved = await dynamodb_service.update_issue_priority(
                     issue_id=issue_id,
                     priority_score=final_score,
                     priority_severity=severity.value,
                     priority_reasoning=reasoning,
                 )
                 if saved:
-                    print(f"[PriorityAgent] Priority saved to Firebase for issue {issue_id}")
+                    print(f"[PriorityAgent] Priority saved to DynamoDB for issue {issue_id}")
                 else:
-                    print(f"[PriorityAgent] Failed to save priority to Firebase for issue {issue_id}")
+                    print(f"[PriorityAgent] Failed to save priority to DynamoDB for issue {issue_id}")
             except Exception as e:
-                print(f"[PriorityAgent] Error saving priority to Firebase: {e}")
+                print(f"[PriorityAgent] Error saving priority to DynamoDB: {e}")
 
         return priority_result
 

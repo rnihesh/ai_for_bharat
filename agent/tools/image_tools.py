@@ -1,9 +1,9 @@
 """
-Image analysis tools using Azure OpenAI Vision
+Image analysis tools using AWS Bedrock Vision
 """
 
 from typing import Dict, Any, Optional
-from services.azure_openai import azure_openai_service
+from services.bedrock import bedrock_service
 
 
 class ImageTools:
@@ -36,7 +36,7 @@ Respond in this exact JSON format:
     "confidence": <0.0-1.0>
 }"""
 
-        response = await azure_openai_service.analyze_image(image_url, prompt)
+        response = await bedrock_service.analyze_image(image_url, prompt)
 
         # Parse JSON response
         import json
@@ -70,7 +70,7 @@ Respond in this exact JSON format:
         Returns:
             Severity assessment
         """
-        return await azure_openai_service.analyze_image_severity(image_url, issue_type or "")
+        return await bedrock_service.analyze_image_severity(image_url, issue_type or "")
 
     @staticmethod
     async def validate_issue_image(image_url: str) -> Dict[str, Any]:
@@ -96,7 +96,7 @@ Respond in this exact JSON format:
     "suggestions": ["<suggestion if invalid>"]
 }"""
 
-        response = await azure_openai_service.analyze_image(image_url, prompt)
+        response = await bedrock_service.analyze_image(image_url, prompt)
 
         import json
         try:
@@ -146,7 +146,7 @@ Respond in this exact JSON format:
     "notes": "<any additional observations>"
 }}"""
 
-        response = await azure_openai_service.analyze_image(after_url, prompt)
+        response = await bedrock_service.analyze_image(after_url, prompt)
 
         import json
         try:

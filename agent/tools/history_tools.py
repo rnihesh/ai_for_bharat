@@ -4,7 +4,7 @@ Historical data and analytics tools
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from services.firebase import firebase_service
+from services.dynamodb import dynamodb_service
 from tools.location_tools import LocationTools
 
 
@@ -24,7 +24,7 @@ class HistoryTools:
             Location history and statistics
         """
         geohash = LocationTools.encode_geohash(lat, lng, precision=6)
-        stats = await firebase_service.get_location_stats(geohash)
+        stats = await dynamodb_service.get_location_stats(geohash)
 
         if not stats:
             return {
@@ -123,7 +123,7 @@ class HistoryTools:
             List of nearby hotspots
         """
         geohash = LocationTools.encode_geohash(lat, lng, precision=4)
-        hotspots = await firebase_service.get_nearby_hotspots(geohash, limit=10)
+        hotspots = await dynamodb_service.get_nearby_hotspots(geohash, limit=10)
 
         # Filter by distance
         result = []
@@ -152,8 +152,8 @@ class HistoryTools:
         Returns:
             Performance metrics
         """
-        stats = await firebase_service.get_municipality_stats(municipality_id)
-        open_count = await firebase_service.get_municipality_open_issues_count(municipality_id)
+        stats = await dynamodb_service.get_municipality_stats(municipality_id)
+        open_count = await dynamodb_service.get_municipality_open_issues_count(municipality_id)
 
         if not stats:
             return {

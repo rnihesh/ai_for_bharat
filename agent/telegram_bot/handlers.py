@@ -17,7 +17,7 @@ from telegram_bot.memory import ImageAnalysis, ShortTermMemory
 from telegram_bot.s3_upload import upload_telegram_photo
 from telegram_bot.messages import get_message, detect_language, get_issue_type_label
 
-from services.azure_openai import azure_openai_service
+from services.bedrock import bedrock_service
 from config import config
 
 
@@ -108,7 +108,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         photo = message.photo[-1]
         file_id = photo.file_id
 
-        # Upload photo to Cloudinary
+        # Upload photo to S3
         image_url = await upload_telegram_photo(context.bot, file_id)
 
         if not image_url:
@@ -117,7 +117,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         print(f"[TelegramBot] Photo uploaded: {image_url}")
 
-        # Classify the image using Azure OpenAI
+        # Classify the image using Bedrock
         classification = await _classify_image(image_url)
 
         print(f"[TelegramBot] Classification result: {classification}")
@@ -346,7 +346,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def _classify_image(image_url: str) -> dict:
     """
-    Classify an image using Azure OpenAI.
+    Classify an image using AWS Bedrock.
 
     Args:
         image_url: URL of the image to classify
@@ -354,7 +354,7 @@ async def _classify_image(image_url: str) -> dict:
     Returns:
         Classification result dict
     """
-    if not config.azure_openai.is_configured:
+    if not config.bedrock.is_configured:
         return {
             "success": False,
             "isValid": False,
@@ -390,7 +390,7 @@ Respond in this exact JSON format:
 
 Be strict - only mark as civic issue if it clearly shows infrastructure problems that municipalities handle."""
 
-        result = await azure_openai_service.analyze_image(
+        result = await bedrock_service.analyze_image(
             image_url=image_url,
             prompt=classification_prompt,
         )

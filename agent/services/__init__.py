@@ -2,14 +2,14 @@
 Services for the Agent Service
 """
 
-from .azure_openai import azure_openai_service
-from .firebase import firebase_service
-from .murf import murf_service
-from .whisper import whisper_service
+from .bedrock import bedrock_service
+from .dynamodb import dynamodb_service
+from .polly import polly_service
+from .transcribe import transcribe_service
 
 __all__ = [
-    "azure_openai_service",
-    "firebase_service",
-    "murf_service",
-    "whisper_service",
+    "bedrock_service",
+    "dynamodb_service",
+    "polly_service",
+    "transcribe_service",
 ]

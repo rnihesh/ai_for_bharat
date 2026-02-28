@@ -5,8 +5,8 @@ Voice Agent for voice-based issue reporting
 from typing import Dict, Any, Optional
 from models.conversation import ConversationSession, MessageRole
 from agents.chat_agent import ChatAgent
-from services.whisper import whisper_service
-from services.murf import murf_service
+from services.transcribe import transcribe_service
+from services.polly import polly_service
 from config import config
 
 
@@ -15,17 +15,17 @@ class VoiceAgent(ChatAgent):
     Voice agent that extends ChatAgent with speech capabilities.
 
     Speech-to-Text Strategy:
-    1. If OPENAI_API_KEY is configured: Use OpenAI Whisper API (server-side)
+    1. If AWS credentials are configured: Use Amazon Transcribe (server-side)
     2. Otherwise: Return flag for browser to use Web Speech API (client-side)
 
     Text-to-Speech:
-    - Uses Murf AI for natural-sounding Indian English voices
+    - Uses Amazon Polly for natural-sounding Indian English voices
     """
 
     def __init__(self, session: ConversationSession):
         super().__init__(session)
-        self.whisper_available = config.whisper.is_configured
-        self.tts_available = config.murf.is_configured
+        self.whisper_available = config.transcribe.is_configured
+        self.tts_available = config.polly.is_configured
 
     async def process_audio(
         self,
@@ -105,7 +105,7 @@ class VoiceAgent(ChatAgent):
         content_type: str,
     ) -> tuple[str, float]:
         """
-        Transcribe audio using OpenAI Whisper
+        Transcribe audio using Amazon Transcribe
 
         Args:
             audio_data: Audio bytes
@@ -123,10 +123,10 @@ class VoiceAgent(ChatAgent):
                 "Yes, no, submit, confirm, cancel."
             )
 
-            transcription, confidence = await whisper_service.transcribe(
+            transcription, confidence = await transcribe_service.transcribe(
                 audio_data=audio_data,
                 content_type=content_type,
-                language="en",
+                language="en-IN",
                 prompt=context_prompt,
             )
 
@@ -146,10 +146,10 @@ class VoiceAgent(ChatAgent):
         Returns:
             Audio bytes
         """
-        return await murf_service.synthesize(
+        return await polly_service.synthesize(
             text=text,
-            voice=config.murf.default_voice,
-            style="Conversational",
+            voice=config.polly.default_voice,
+            style="conversational",
         )
 
     def get_voice_config(self) -> Dict[str, Any]:
@@ -163,8 +163,8 @@ class VoiceAgent(ChatAgent):
             "whisper_enabled": self.whisper_available,
             "tts_enabled": self.tts_available,
             "use_browser_stt": not self.whisper_available,
-            "voice_options": murf_service.get_indian_voices() if self.tts_available else [],
-            "default_voice": config.murf.default_voice,
+            "voice_options": polly_service.get_indian_voices() if self.tts_available else [],
+            "default_voice": config.polly.default_voice,
         }
 
     async def get_voice_greeting(self) -> Dict[str, Any]:

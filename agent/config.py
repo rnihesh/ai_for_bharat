@@ -14,50 +14,40 @@ env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 
-class AzureOpenAIConfig(BaseModel):
-    """Azure OpenAI configuration"""
-    api_key: str = os.getenv("AZURE_OPENAI_API_KEY", "")
-    endpoint: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-    deployment_name: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
-    api_version: str = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+class BedrockConfig(BaseModel):
+    """AWS Bedrock configuration"""
+    region: str = os.getenv("AWS_REGION", "ap-south-1")
+    model_id: str = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.api_key and self.endpoint)
+        return bool(self.region)
 
 
-class MurfConfig(BaseModel):
-    """Murf AI TTS configuration"""
-    api_key: str = os.getenv("MURF_API_KEY", "")
-    base_url: str = "https://api.murf.ai/v1"
-    default_voice: str = "en-IN-isha"  # Indian English voice
-
-    @property
-    def is_configured(self) -> bool:
-        return bool(self.api_key)
-
-
-class WhisperConfig(BaseModel):
-    """Whisper STT configuration - supports both Azure and OpenAI"""
-    # Azure Whisper (preferred)
-    azure_endpoint: str = os.getenv("AZURE_WHISPER_ENDPOINT", "")
-    azure_api_key: str = os.getenv("AZURE_WHISPER_API_KEY", os.getenv("AZURE_OPENAI_API_KEY", ""))
-
-    # OpenAI Whisper (fallback)
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+class PollyConfig(BaseModel):
+    """Amazon Polly TTS configuration"""
+    region: str = os.getenv("AWS_REGION", "ap-south-1")
+    default_voice: str = os.getenv("POLLY_VOICE_ID", "Kajal")
+    engine: str = os.getenv("POLLY_ENGINE", "neural")
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.azure_endpoint and self.azure_api_key) or bool(self.openai_api_key)
+        return bool(self.region)
+
+
+class TranscribeConfig(BaseModel):
+    """Amazon Transcribe STT configuration"""
+    region: str = os.getenv("AWS_REGION", "ap-south-1")
+    s3_bucket: str = os.getenv("S3_BUCKET_NAME", "civiclemma-uploads")
 
     @property
-    def use_azure(self) -> bool:
-        return bool(self.azure_endpoint and self.azure_api_key)
+    def is_configured(self) -> bool:
+        return bool(self.region and self.s3_bucket)
 
 
 class WeatherConfig(BaseModel):
     """Google Weather API configuration"""
-    api_key: str = os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyBP9bHQBv0j7VX3xBiHgcJFJ989TXLnoMk")
+    api_key: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
     base_url: str = "https://weather.googleapis.com/v1"
 
     @property
@@ -65,28 +55,14 @@ class WeatherConfig(BaseModel):
         return bool(self.api_key)
 
 
-def _get_firebase_private_key() -> str:
-    """Get and properly format the Firebase private key"""
-    key = os.getenv("FIREBASE_PRIVATE_KEY", "")
-    # Remove surrounding quotes if present
-    if key.startswith('"') and key.endswith('"'):
-        key = key[1:-1]
-    if key.startswith("'") and key.endswith("'"):
-        key = key[1:-1]
-    # Replace literal \n with actual newlines
-    key = key.replace("\\n", "\n")
-    return key
-
-
-class FirebaseConfig(BaseModel):
-    """Firebase configuration"""
-    project_id: str = os.getenv("FIREBASE_PROJECT_ID", "civiclemma")
-    client_email: str = os.getenv("FIREBASE_CLIENT_EMAIL", "")
-    private_key: str = _get_firebase_private_key()
+class DynamoDBConfig(BaseModel):
+    """DynamoDB configuration"""
+    region: str = os.getenv("AWS_REGION", "ap-south-1")
+    table_prefix: str = os.getenv("DYNAMODB_TABLE_PREFIX", "civiclemma_")
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.project_id and self.client_email and self.private_key)
+        return bool(self.region)
 
 
 class ServiceURLs(BaseModel):
@@ -106,11 +82,11 @@ class TelegramConfig(BaseModel):
 
 class AgentConfig(BaseModel):
     """Main agent configuration"""
-    azure_openai: AzureOpenAIConfig = AzureOpenAIConfig()
-    murf: MurfConfig = MurfConfig()
-    whisper: WhisperConfig = WhisperConfig()
+    bedrock: BedrockConfig = BedrockConfig()
+    polly: PollyConfig = PollyConfig()
+    transcribe: TranscribeConfig = TranscribeConfig()
     weather: WeatherConfig = WeatherConfig()
-    firebase: FirebaseConfig = FirebaseConfig()
+    dynamodb: DynamoDBConfig = DynamoDBConfig()
     services: ServiceURLs = ServiceURLs()
     telegram: TelegramConfig = TelegramConfig()
 
@@ -123,11 +99,11 @@ class AgentConfig(BaseModel):
         print("=" * 60)
         print("Agent Service Configuration Status")
         print("=" * 60)
-        print(f"  Azure OpenAI: {'Configured' if self.azure_openai.is_configured else 'NOT CONFIGURED'}")
-        print(f"  Murf AI TTS:  {'Configured' if self.murf.is_configured else 'NOT CONFIGURED'}")
-        print(f"  Whisper STT:  {'Configured' if self.whisper.is_configured else 'Browser fallback'}")
+        print(f"  AWS Bedrock:  {'Configured' if self.bedrock.is_configured else 'NOT CONFIGURED'} (model: {self.bedrock.model_id})")
+        print(f"  Amazon Polly: {'Configured' if self.polly.is_configured else 'NOT CONFIGURED'} (voice: {self.polly.default_voice})")
+        print(f"  Transcribe:   {'Configured' if self.transcribe.is_configured else 'NOT CONFIGURED'}")
         print(f"  Google Weather API: {'Configured' if self.weather.is_configured else 'NOT CONFIGURED'}")
-        print(f"  Firebase:     {'Configured' if self.firebase.is_configured else 'NOT CONFIGURED'}")
+        print(f"  DynamoDB:     {'Configured' if self.dynamodb.is_configured else 'NOT CONFIGURED'}")
         print(f"  Telegram Bot: {'Configured' if self.telegram.is_configured else 'NOT CONFIGURED'}")
         print("=" * 60)
 

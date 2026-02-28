@@ -4,7 +4,7 @@ Base Agent class with common functionality
 
 from typing import Dict, Any, List, Optional
 from models.conversation import ConversationSession, ConversationState, MessageRole
-from services.azure_openai import azure_openai_service
+from services.bedrock import bedrock_service
 
 
 class BaseAgent:
@@ -12,7 +12,7 @@ class BaseAgent:
 
     def __init__(self, session: Optional[ConversationSession] = None):
         self.session = session
-        self.llm = azure_openai_service
+        self.llm = bedrock_service
 
     def get_system_prompt(self) -> str:
         """Get the system prompt for this agent - override in subclasses"""

@@ -35,15 +35,15 @@ async def lifespan(app: FastAPI):
     config.print_status()
 
     # Initialize services
-    from services.azure_openai import azure_openai_service
-    from services.firebase import firebase_service
+    from services.bedrock import bedrock_service
+    from services.dynamodb import dynamodb_service
 
-    if config.azure_openai.is_configured:
-        print("Azure OpenAI client initialized")
+    if config.bedrock.is_configured:
+        print("Bedrock client initialized")
 
-    if config.firebase.is_configured:
-        firebase_service.initialize()
-        print("Firebase initialized")
+    if config.dynamodb.is_configured:
+        dynamodb_service.initialize()
+        print("DynamoDB initialized")
 
     # Initialize Telegram bot if configured
     telegram_started = False
@@ -201,11 +201,11 @@ async def health():
         status="ok",
         timestamp=datetime.utcnow().isoformat(),
         services={
-            "azure_openai": config.azure_openai.is_configured,
-            "murf_tts": config.murf.is_configured,
-            "whisper_stt": config.whisper.is_configured,
+            "bedrock": config.bedrock.is_configured,
+            "polly_tts": config.polly.is_configured,
+            "transcribe_stt": config.transcribe.is_configured,
             "weather": config.weather.is_configured,
-            "firebase": config.firebase.is_configured,
+            "dynamodb": config.dynamodb.is_configured,
         }
     )
 
@@ -214,8 +214,8 @@ async def health():
 async def get_config():
     """Get client configuration"""
     return ConfigResponse(
-        whisper_enabled=config.whisper.is_configured,
-        tts_enabled=config.murf.is_configured,
+        whisper_enabled=config.transcribe.is_configured,
+        tts_enabled=config.polly.is_configured,
         weather_enabled=config.weather.is_configured,
     )
 
@@ -352,12 +352,12 @@ async def process_voice_audio(
 @app.post("/agent/voice/tts")
 async def text_to_speech(request: TTSRequest):
     """Convert text to speech"""
-    from services.murf import murf_service
+    from services.polly import polly_service
 
-    if not config.murf.is_configured:
+    if not config.polly.is_configured:
         raise HTTPException(status_code=503, detail="TTS service not configured")
 
-    audio_data = await murf_service.synthesize(request.text, request.voice)
+    audio_data = await polly_service.synthesize(request.text, request.voice)
 
     return StreamingResponse(
         iter([audio_data]),
@@ -462,11 +462,11 @@ ISSUE_TYPE_MAPPING = {
 
 @app.post("/agent/classify", response_model=ClassifyImageResponse)
 async def classify_image(request: ClassifyImageRequest):
-    """Classify an image using GPT-4o vision"""
-    from services.azure_openai import azure_openai_service
+    """Classify an image using Bedrock vision"""
+    from services.bedrock import bedrock_service
 
-    if not config.azure_openai.is_configured:
-        raise HTTPException(status_code=503, detail="Azure OpenAI not configured")
+    if not config.bedrock.is_configured:
+        raise HTTPException(status_code=503, detail="Bedrock not configured")
 
     try:
         # Use GPT-4o vision to classify the image
@@ -497,7 +497,7 @@ Respond in this exact JSON format:
 
 Be strict - only mark as civic issue if it clearly shows infrastructure problems that municipalities handle."""
 
-        result = await azure_openai_service.analyze_image(
+        result = await bedrock_service.analyze_image(
             image_url=request.image_url,
             prompt=classification_prompt,
         )
@@ -570,11 +570,11 @@ Be strict - only mark as civic issue if it clearly shows infrastructure problems
 
 @app.post("/agent/generate-description", response_model=GenerateDescriptionResponse)
 async def generate_description(request: GenerateDescriptionRequest):
-    """Generate a description for an issue image using GPT-4o vision"""
-    from services.azure_openai import azure_openai_service
+    """Generate a description for an issue image using Bedrock vision"""
+    from services.bedrock import bedrock_service
 
-    if not config.azure_openai.is_configured:
-        raise HTTPException(status_code=503, detail="Azure OpenAI not configured")
+    if not config.bedrock.is_configured:
+        raise HTTPException(status_code=503, detail="Bedrock not configured")
 
     try:
         issue_type_display = request.issue_type.replace("_", " ").title()
@@ -590,7 +590,7 @@ Write a clear, professional, and concise description (2-3 sentences) for this is
 
 Write ONLY the description text, nothing else. Do not include greetings, labels, or formatting."""
 
-        description = await azure_openai_service.analyze_image(
+        description = await bedrock_service.analyze_image(
             image_url=request.image_url,
             prompt=description_prompt,
         )
