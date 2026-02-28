@@ -1,6 +1,14 @@
 import { Router, Response } from "express";
 import type { Router as IRouter } from "express";
-import { getAdminDb, COLLECTIONS } from "../shared/firebase";
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+  DeleteCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { getDocClient, TABLES, GSI } from "../shared/aws";
 import {
   createMunicipalitySchema,
   updateMunicipalitySchema,
@@ -19,6 +27,19 @@ const router: IRouter = Router();
 router.use(authMiddleware);
 router.use(requireRole("PLATFORM_MAINTAINER"));
 
+// ID generation helpers
+function generateMunicipalityId(): string {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 8);
+  return `MUN-${timestamp}-${randomPart}`.toUpperCase();
+}
+
+function generateRegistrationId(): string {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 8);
+  return `REG-${timestamp}-${randomPart}`.toUpperCase();
+}
+
 // ============================================
 // MUNICIPALITY MANAGEMENT
 // ============================================
@@ -28,75 +49,44 @@ router.get(
   "/municipalities",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { page, pageSize } = paginationSchema.parse(req.query);
       const { state, district, search } = req.query;
 
-      let query = db.collection(COLLECTIONS.MUNICIPALITIES).orderBy("name");
+      // Use GSI sorted by name for ordered listing
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        IndexName: GSI.MUNICIPALITIES_BY_NAME,
+        KeyConditionExpression: '_pk = :pk',
+        ExpressionAttributeValues: { ':pk': 'ALL' },
+        ScanIndexForward: true,
+      }));
 
-      if (state) {
-        query = query.where("state", "==", state);
-      }
-      if (district) {
-        query = query.where("district", "==", district);
-      }
+      let allItems = result.Items || [];
 
-      let allDocs;
-      if (search && typeof search === "string" && search.trim()) {
-        const allSnapshot = await query.get();
+      // Apply filters
+      if (state && typeof state === 'string') {
+        allItems = allItems.filter((item) => item.state === state);
+      }
+      if (district && typeof district === 'string') {
+        allItems = allItems.filter((item) => item.district === district);
+      }
+      if (search && typeof search === 'string' && search.trim()) {
         const searchLower = search.toLowerCase().trim();
-        allDocs = allSnapshot.docs.filter((doc) => {
-          const data = doc.data();
-          return (
-            data.name?.toLowerCase().includes(searchLower) ||
-            data.district?.toLowerCase().includes(searchLower) ||
-            data.state?.toLowerCase().includes(searchLower)
-          );
-        });
-      } else {
-        const snapshot = await query
-          .limit(pageSize)
-          .offset((page - 1) * pageSize)
-          .get();
-        allDocs = null;
-        
-        const municipalities = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate(),
-          updatedAt: doc.data().updatedAt?.toDate(),
-        }));
-
-        const countSnapshot = await db
-          .collection(COLLECTIONS.MUNICIPALITIES)
-          .count()
-          .get();
-        const total = countSnapshot.data().count;
-
-        return res.json({
-          success: true,
-          data: {
-            items: municipalities,
-            total,
-            page,
-            pageSize,
-            hasMore: (page - 1) * pageSize + municipalities.length < total,
-          },
-          error: null,
-          timestamp: new Date().toISOString(),
-        });
+        allItems = allItems.filter((item) =>
+          item.name?.toLowerCase().includes(searchLower) ||
+          item.district?.toLowerCase().includes(searchLower) ||
+          item.state?.toLowerCase().includes(searchLower)
+        );
       }
 
-      // Paginate filtered results
-      const total = allDocs.length;
+      const total = allItems.length;
       const startIndex = (page - 1) * pageSize;
-      const paginatedDocs = allDocs.slice(startIndex, startIndex + pageSize);
-      
-      const municipalities = paginatedDocs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
+      const pageItems = allItems.slice(startIndex, startIndex + pageSize);
+
+      const municipalities = pageItems.map((item) => ({
+        id: item.municipalityId,
+        ...item,
       }));
 
       res.json({
@@ -131,11 +121,14 @@ router.post(
   "/municipalities",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const input = createMunicipalitySchema.parse(req.body);
-      const now = new Date();
+      const now = new Date().toISOString();
+      const municipalityId = generateMunicipalityId();
 
       const municipalityData = {
+        municipalityId,
+        _pk: 'ALL',
         ...input,
         score: 100,
         totalIssues: 0,
@@ -145,13 +138,14 @@ router.post(
         updatedAt: now,
       };
 
-      const docRef = await db
-        .collection(COLLECTIONS.MUNICIPALITIES)
-        .add(municipalityData);
+      await client.send(new PutCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Item: municipalityData,
+      }));
 
       res.status(201).json({
         success: true,
-        data: { id: docRef.id, ...municipalityData },
+        data: { id: municipalityId, ...municipalityData },
         error: null,
         timestamp: new Date().toISOString(),
       });
@@ -185,14 +179,17 @@ router.put(
   "/municipalities/:id",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
       const input = updateMunicipalitySchema.parse(req.body);
 
-      const docRef = db.collection(COLLECTIONS.MUNICIPALITIES).doc(id);
-      const doc = await docRef.get();
+      // Check if municipality exists
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+      }));
 
-      if (!doc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -201,16 +198,43 @@ router.put(
         });
       }
 
-      await docRef.update({
-        ...input,
-        updatedAt: new Date(),
+      // Build update expression dynamically
+      const expressionParts: string[] = [];
+      const expressionValues: Record<string, unknown> = {};
+      const expressionNames: Record<string, string> = {};
+
+      Object.entries(input).forEach(([key, value]) => {
+        if (value !== undefined) {
+          const attrName = `#${key}`;
+          const attrValue = `:${key}`;
+          expressionNames[attrName] = key;
+          expressionValues[attrValue] = value;
+          expressionParts.push(`${attrName} = ${attrValue}`);
+        }
       });
 
-      const updated = await docRef.get();
+      expressionParts.push('updatedAt = :updatedAt');
+      expressionValues[':updatedAt'] = new Date().toISOString();
+
+      await client.send(new UpdateCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+        UpdateExpression: `SET ${expressionParts.join(', ')}`,
+        ExpressionAttributeValues: expressionValues,
+        ...(Object.keys(expressionNames).length > 0
+          ? { ExpressionAttributeNames: expressionNames }
+          : {}),
+      }));
+
+      // Fetch updated item
+      const updatedResult = await client.send(new GetCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+      }));
 
       res.json({
         success: true,
-        data: { id: updated.id, ...updated.data() },
+        data: { id, ...updatedResult.Item },
         error: null,
         timestamp: new Date().toISOString(),
       });
@@ -244,13 +268,15 @@ router.post(
   "/municipalities/:id/regenerate-bounds",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
 
-      const docRef = db.collection(COLLECTIONS.MUNICIPALITIES).doc(id);
-      const doc = await docRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+      }));
 
-      if (!doc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -259,7 +285,7 @@ router.post(
         });
       }
 
-      const municipality = doc.data()!;
+      const municipality = getResult.Item;
 
       // Get new bounds from Google Maps
       const newBounds = await getMunicipalityBounds(
@@ -268,10 +294,15 @@ router.post(
         municipality.state
       );
 
-      await docRef.update({
-        bounds: newBounds,
-        updatedAt: new Date(),
-      });
+      await client.send(new UpdateCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+        UpdateExpression: 'SET bounds = :bounds, updatedAt = :now',
+        ExpressionAttributeValues: {
+          ':bounds': newBounds,
+          ':now': new Date().toISOString(),
+        },
+      }));
 
       res.json({
         success: true,
@@ -308,13 +339,15 @@ router.delete(
   "/municipalities/:id",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
 
-      const docRef = db.collection(COLLECTIONS.MUNICIPALITIES).doc(id);
-      const doc = await docRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+      }));
 
-      if (!doc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -324,13 +357,15 @@ router.delete(
       }
 
       // Check if there are any linked issues
-      const issuesSnapshot = await db
-        .collection(COLLECTIONS.ISSUES)
-        .where("municipalityId", "==", id)
-        .limit(1)
-        .get();
+      const issuesResult = await client.send(new QueryCommand({
+        TableName: TABLES.ISSUES,
+        IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+        KeyConditionExpression: 'municipalityId = :mid',
+        ExpressionAttributeValues: { ':mid': id },
+        Limit: 1,
+      }));
 
-      if (!issuesSnapshot.empty) {
+      if (issuesResult.Items && issuesResult.Items.length > 0) {
         return res.status(400).json({
           success: false,
           data: null,
@@ -340,7 +375,10 @@ router.delete(
         });
       }
 
-      await docRef.delete();
+      await client.send(new DeleteCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Key: { municipalityId: id },
+      }));
 
       res.json({
         success: true,
@@ -372,30 +410,25 @@ router.get(
   "/registrations",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { page, pageSize } = paginationSchema.parse(req.query);
       const { status = "PENDING" } = req.query;
 
-      const snapshot = await db
-        .collection("municipality_registrations")
-        .where("status", "==", status)
-        .get();
-
-      let registrations = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        IndexName: GSI.REGISTRATIONS_BY_STATUS,
+        KeyConditionExpression: '#status = :status',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':status': status as string },
+        ScanIndexForward: false,
       }));
 
-      registrations.sort((a: any, b: any) => {
-        const aTime = a.createdAt?.getTime() || 0;
-        const bTime = b.createdAt?.getTime() || 0;
-        return bTime - aTime;
-      });
+      let registrations = (result.Items || []).map((item) => ({
+        id: item.registrationId,
+        ...item,
+      }));
 
       const total = registrations.length;
-
       registrations = registrations.slice(
         (page - 1) * pageSize,
         page * pageSize
@@ -433,14 +466,16 @@ router.post(
   "/registrations/:id/approve",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
       const { bounds } = req.body;
 
-      const regRef = db.collection("municipality_registrations").doc(id);
-      const regDoc = await regRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        Key: { registrationId: id },
+      }));
 
-      if (!regDoc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -449,7 +484,7 @@ router.post(
         });
       }
 
-      const registration = regDoc.data()!;
+      const registration = getResult.Item;
 
       if (registration.status !== "PENDING") {
         return res.status(400).json({
@@ -460,7 +495,8 @@ router.post(
         });
       }
 
-      const now = new Date();
+      const now = new Date().toISOString();
+      const municipalityId = generateMunicipalityId();
 
       let municipalityBounds = bounds || registration.bounds;
 
@@ -479,6 +515,8 @@ router.post(
       }
 
       const municipalityData = {
+        municipalityId,
+        _pk: 'ALL',
         name: registration.municipalityName,
         type: registration.municipalityType || "MUNICIPALITY",
         state: registration.state,
@@ -492,31 +530,47 @@ router.post(
         updatedAt: now,
       };
 
-      const municipalityRef = await db
-        .collection(COLLECTIONS.MUNICIPALITIES)
-        .add(municipalityData);
+      // Create the municipality
+      await client.send(new PutCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Item: municipalityData,
+      }));
 
+      // Update user role if userId is present
       if (registration.userId) {
-        await db.collection(COLLECTIONS.USERS).doc(registration.userId).update({
-          role: "municipality",
-          municipalityId: municipalityRef.id,
-          updatedAt: now,
-        });
+        await client.send(new UpdateCommand({
+          TableName: TABLES.USERS,
+          Key: { uid: registration.userId },
+          UpdateExpression: 'SET #role = :role, municipalityId = :mid, updatedAt = :now',
+          ExpressionAttributeNames: { '#role': 'role' },
+          ExpressionAttributeValues: {
+            ':role': 'municipality',
+            ':mid': municipalityId,
+            ':now': now,
+          },
+        }));
       }
 
-      await regRef.update({
-        status: "APPROVED",
-        approvedBy: req.user!.uid,
-        approvedAt: now,
-        municipalityId: municipalityRef.id,
-        updatedAt: now,
-      });
+      // Update registration status
+      await client.send(new UpdateCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        Key: { registrationId: id },
+        UpdateExpression: 'SET #status = :status, approvedBy = :approvedBy, approvedAt = :approvedAt, municipalityId = :mid, updatedAt = :now',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':status': 'APPROVED',
+          ':approvedBy': req.user!.uid,
+          ':approvedAt': now,
+          ':mid': municipalityId,
+          ':now': now,
+        },
+      }));
 
       res.json({
         success: true,
         data: {
           registration: { id, status: "APPROVED" },
-          municipality: { id: municipalityRef.id, ...municipalityData },
+          municipality: { id: municipalityId, ...municipalityData },
         },
         error: null,
         timestamp: new Date().toISOString(),
@@ -541,7 +595,7 @@ router.post(
   "/registrations/:id/reject",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
       const { reason } = req.body;
 
@@ -554,10 +608,12 @@ router.post(
         });
       }
 
-      const regRef = db.collection("municipality_registrations").doc(id);
-      const regDoc = await regRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        Key: { registrationId: id },
+      }));
 
-      if (!regDoc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -566,7 +622,7 @@ router.post(
         });
       }
 
-      const registration = regDoc.data()!;
+      const registration = getResult.Item;
 
       if (registration.status !== "PENDING") {
         return res.status(400).json({
@@ -577,15 +633,21 @@ router.post(
         });
       }
 
-      const now = new Date();
+      const now = new Date().toISOString();
 
-      await regRef.update({
-        status: "REJECTED",
-        rejectionReason: reason,
-        rejectedBy: req.user!.uid,
-        rejectedAt: now,
-        updatedAt: now,
-      });
+      await client.send(new UpdateCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        Key: { registrationId: id },
+        UpdateExpression: 'SET #status = :status, rejectionReason = :reason, rejectedBy = :rejectedBy, rejectedAt = :rejectedAt, updatedAt = :now',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':status': 'REJECTED',
+          ':reason': reason,
+          ':rejectedBy': req.user!.uid,
+          ':rejectedAt': now,
+          ':now': now,
+        },
+      }));
 
       res.json({
         success: true,
@@ -615,76 +677,51 @@ router.post(
 // Get all users
 router.get("/users", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
     const { page, pageSize } = paginationSchema.parse(req.query);
     const { role, search } = req.query;
 
-    let query = db.collection(COLLECTIONS.USERS).orderBy("createdAt", "desc");
+    let allItems: Record<string, unknown>[];
 
-    if (role && typeof role === "string") {
-      query = query.where("role", "==", role);
-    }
-
-    let allDocs;
-    if (search && typeof search === "string" && search.trim()) {
-      const allSnapshot = await query.get();
-      const searchLower = search.toLowerCase().trim();
-      allDocs = allSnapshot.docs.filter((doc) => {
-        const data = doc.data();
-        return (
-          data.email?.toLowerCase().includes(searchLower) ||
-          data.displayName?.toLowerCase().includes(searchLower)
-        );
-      });
-    } else {
-      const snapshot = await query
-        .limit(pageSize)
-        .offset((page - 1) * pageSize)
-        .get();
-
-      const users = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        lastLogin: doc.data().lastLogin?.toDate(),
+    if (role && typeof role === 'string') {
+      // Use GSI to filter by role
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.USERS,
+        IndexName: GSI.USERS_BY_ROLE,
+        KeyConditionExpression: '#role = :role',
+        ExpressionAttributeNames: { '#role': 'role' },
+        ExpressionAttributeValues: { ':role': role },
+        ScanIndexForward: false,
       }));
-
-      let total;
-      if (role && typeof role === "string") {
-        const countSnapshot = await db
-          .collection(COLLECTIONS.USERS)
-          .where("role", "==", role)
-          .count()
-          .get();
-        total = countSnapshot.data().count;
-      } else {
-        const countSnapshot = await db.collection(COLLECTIONS.USERS).count().get();
-        total = countSnapshot.data().count;
-      }
-
-      return res.json({
-        success: true,
-        data: {
-          items: users,
-          total,
-          page,
-          pageSize,
-          hasMore: (page - 1) * pageSize + users.length < total,
-        },
-        error: null,
-        timestamp: new Date().toISOString(),
+      allItems = result.Items || [];
+    } else {
+      // Scan all users
+      const result = await client.send(new ScanCommand({
+        TableName: TABLES.USERS,
+      }));
+      allItems = (result.Items || []).sort((a, b) => {
+        const aDate = a.createdAt as string || '';
+        const bDate = b.createdAt as string || '';
+        return bDate.localeCompare(aDate);
       });
     }
 
-    const total = allDocs.length;
-    const startIndex = (page - 1) * pageSize;
-    const paginatedDocs = allDocs.slice(startIndex, startIndex + pageSize);
+    // Apply search filter in memory
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      allItems = allItems.filter((item) =>
+        (item.email as string)?.toLowerCase().includes(searchLower) ||
+        (item.displayName as string)?.toLowerCase().includes(searchLower)
+      );
+    }
 
-    const users = paginatedDocs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-      lastLogin: doc.data().lastLogin?.toDate(),
+    const total = allItems.length;
+    const startIndex = (page - 1) * pageSize;
+    const pageItems = allItems.slice(startIndex, startIndex + pageSize);
+
+    const users = pageItems.map((item) => ({
+      id: item.uid,
+      ...item,
     }));
 
     res.json({
@@ -715,7 +752,7 @@ router.put(
   "/users/:id/role",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
       const { role, municipalityId } = req.body;
 
@@ -737,10 +774,12 @@ router.put(
         });
       }
 
-      const userRef = db.collection(COLLECTIONS.USERS).doc(id);
-      const userDoc = await userRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.USERS,
+        Key: { uid: id },
+      }));
 
-      if (!userDoc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -749,11 +788,17 @@ router.put(
         });
       }
 
-      await userRef.update({
-        role,
-        municipalityId: role === "municipality" ? municipalityId : null,
-        updatedAt: new Date(),
-      });
+      await client.send(new UpdateCommand({
+        TableName: TABLES.USERS,
+        Key: { uid: id },
+        UpdateExpression: 'SET #role = :role, municipalityId = :mid, updatedAt = :now',
+        ExpressionAttributeNames: { '#role': 'role' },
+        ExpressionAttributeValues: {
+          ':role': role,
+          ':mid': role === "municipality" ? municipalityId : null,
+          ':now': new Date().toISOString(),
+        },
+      }));
 
       res.json({
         success: true,
@@ -789,14 +834,16 @@ router.put(
   "/issues/:id",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
       const { description, status, type, location, imageUrls } = req.body;
 
-      const docRef = db.collection(COLLECTIONS.ISSUES).doc(id);
-      const doc = await docRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+      }));
 
-      if (!doc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -805,29 +852,37 @@ router.put(
         });
       }
 
-      const issueData = doc.data()!;
+      const issueData = getResult.Item;
       const previousStatus = issueData.status;
       const municipalityId = issueData.municipalityId;
 
-      const updateData: Record<string, unknown> = {
-        updatedAt: new Date(),
-      };
+      const expressionParts: string[] = [];
+      const expressionValues: Record<string, unknown> = {};
+      const expressionNames: Record<string, string> = {};
 
       if (description !== undefined) {
-        updateData.description = description;
+        expressionParts.push('#description = :description');
+        expressionNames['#description'] = 'description';
+        expressionValues[':description'] = description;
       }
       if (type !== undefined) {
-        updateData.type = type;
-        updateData.classifiedType = type;
+        expressionParts.push('#type = :type');
+        expressionNames['#type'] = 'type';
+        expressionValues[':type'] = type;
+        expressionParts.push('classifiedType = :classifiedType');
+        expressionValues[':classifiedType'] = type;
       }
       if (location !== undefined) {
-        updateData.location = {
+        expressionParts.push('#location = :location');
+        expressionNames['#location'] = 'location';
+        expressionValues[':location'] = {
           ...issueData.location,
           ...location,
         };
       }
       if (imageUrls !== undefined && Array.isArray(imageUrls)) {
-        updateData.imageUrls = imageUrls;
+        expressionParts.push('imageUrls = :imageUrls');
+        expressionValues[':imageUrls'] = imageUrls;
       }
       if (status !== undefined) {
         if (!["OPEN", "CLOSED"].includes(status)) {
@@ -838,16 +893,33 @@ router.put(
             timestamp: new Date().toISOString(),
           });
         }
-        updateData.status = status;
+        expressionParts.push('#status = :status');
+        expressionNames['#status'] = 'status';
+        expressionValues[':status'] = status;
       }
 
-      await docRef.update(updateData);
+      expressionParts.push('updatedAt = :updatedAt');
+      expressionValues[':updatedAt'] = new Date().toISOString();
 
+      await client.send(new UpdateCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+        UpdateExpression: `SET ${expressionParts.join(', ')}`,
+        ExpressionAttributeValues: expressionValues,
+        ...(Object.keys(expressionNames).length > 0
+          ? { ExpressionAttributeNames: expressionNames }
+          : {}),
+      }));
+
+      // Update municipality resolved count if status changed
       if (status && status !== previousStatus && municipalityId) {
-        const muniRef = db.collection(COLLECTIONS.MUNICIPALITIES).doc(municipalityId);
-        const muniDoc = await muniRef.get();
-        if (muniDoc.exists) {
-          const muniData = muniDoc.data()!;
+        const muniResult = await client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId },
+        }));
+
+        if (muniResult.Item) {
+          const muniData = muniResult.Item;
           let resolvedChange = 0;
 
           if (status === "CLOSED" && previousStatus !== "CLOSED") {
@@ -857,17 +929,23 @@ router.put(
           }
 
           if (resolvedChange !== 0) {
-            await muniRef.update({
-              resolvedIssues: Math.max(0, (muniData.resolvedIssues || 0) + resolvedChange),
-              updatedAt: new Date(),
-            });
+            const newResolved = Math.max(0, ((muniData.resolvedIssues as number) || 0) + resolvedChange);
+            await client.send(new UpdateCommand({
+              TableName: TABLES.MUNICIPALITIES,
+              Key: { municipalityId },
+              UpdateExpression: 'SET resolvedIssues = :resolved, updatedAt = :now',
+              ExpressionAttributeValues: {
+                ':resolved': newResolved,
+                ':now': new Date().toISOString(),
+              },
+            }));
           }
         }
       }
 
       res.json({
         success: true,
-        data: { id, ...updateData },
+        data: { id, description, status, type, location, imageUrls },
         error: null,
         timestamp: new Date().toISOString(),
       });
@@ -888,13 +966,15 @@ router.delete(
   "/issues/:id",
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { id } = req.params;
 
-      const docRef = db.collection(COLLECTIONS.ISSUES).doc(id);
-      const doc = await docRef.get();
+      const getResult = await client.send(new GetCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+      }));
 
-      if (!doc.exists) {
+      if (!getResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -903,24 +983,39 @@ router.delete(
         });
       }
 
-      const issueData = doc.data()!;
-      const municipalityId = issueData.municipalityId;
+      const issueData = getResult.Item;
+      const municipalityId = issueData.municipalityId as string;
 
-      await docRef.delete();
+      await client.send(new DeleteCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+      }));
 
+      // Update municipality counts
       if (municipalityId) {
-        const muniRef = db.collection(COLLECTIONS.MUNICIPALITIES).doc(municipalityId);
-        const muniDoc = await muniRef.get();
-        if (muniDoc.exists) {
-          const muniData = muniDoc.data()!;
+        const muniResult = await client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId },
+        }));
+
+        if (muniResult.Item) {
+          const muniData = muniResult.Item;
           const wasResolved = issueData.status === "CLOSED";
-          await muniRef.update({
-            totalIssues: Math.max(0, (muniData.totalIssues || 1) - 1),
-            resolvedIssues: wasResolved 
-              ? Math.max(0, (muniData.resolvedIssues || 1) - 1) 
-              : muniData.resolvedIssues || 0,
-            updatedAt: new Date(),
-          });
+          const newTotal = Math.max(0, ((muniData.totalIssues as number) || 1) - 1);
+          const newResolved = wasResolved
+            ? Math.max(0, ((muniData.resolvedIssues as number) || 1) - 1)
+            : (muniData.resolvedIssues as number) || 0;
+
+          await client.send(new UpdateCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId },
+            UpdateExpression: 'SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now',
+            ExpressionAttributeValues: {
+              ':total': newTotal,
+              ':resolved': newResolved,
+              ':now': new Date().toISOString(),
+            },
+          }));
         }
       }
 
@@ -949,22 +1044,39 @@ router.delete(
 // Get admin dashboard stats (enhanced with analytics)
 router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
 
+    // Get counts in parallel using ScanCommand with Select: 'COUNT'
     const [usersCount, municipalitiesCount, issuesCount, pendingRegistrations] =
       await Promise.all([
-        db.collection(COLLECTIONS.USERS).count().get(),
-        db.collection(COLLECTIONS.MUNICIPALITIES).count().get(),
-        db.collection(COLLECTIONS.ISSUES).count().get(),
-        db
-          .collection("municipality_registrations")
-          .where("status", "==", "PENDING")
-          .count()
-          .get(),
+        client.send(new ScanCommand({
+          TableName: TABLES.USERS,
+          Select: 'COUNT',
+        })),
+        client.send(new ScanCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Select: 'COUNT',
+        })),
+        client.send(new ScanCommand({
+          TableName: TABLES.ISSUES,
+          Select: 'COUNT',
+        })),
+        client.send(new QueryCommand({
+          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+          IndexName: GSI.REGISTRATIONS_BY_STATUS,
+          KeyConditionExpression: '#status = :status',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':status': 'PENDING' },
+          Select: 'COUNT',
+        })),
       ]);
 
     // Get all issues for detailed analytics
-    const issuesSnapshot = await db.collection(COLLECTIONS.ISSUES).get();
+    const issuesScan = await client.send(new ScanCommand({
+      TableName: TABLES.ISSUES,
+    }));
+
+    const allIssues = issuesScan.Items || [];
 
     const statusBreakdown: Record<string, number> = {
       OPEN: 0,
@@ -998,13 +1110,12 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    issuesSnapshot.docs.forEach((doc) => {
-      const data = doc.data();
-      const status = data.status;
-      const type = data.type;
-      const municipalityId = data.municipalityId;
-      const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
-      const closedAt = data.closedAt?.toDate?.() || (data.closedAt ? new Date(data.closedAt) : null);
+    allIssues.forEach((data) => {
+      const status = data.status as string;
+      const type = data.type as string;
+      const municipalityId = data.municipalityId as string;
+      const createdAt = new Date(data.createdAt as string);
+      const closedAt = data.closedAt ? new Date(data.closedAt as string) : null;
 
       // Status breakdown
       if (status === "OPEN") {
@@ -1059,13 +1170,17 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
       .map(([id]) => id);
 
     if (topMunicipalityIds.length > 0) {
-      const muniPromises = topMunicipalityIds.map(id =>
-        db.collection(COLLECTIONS.MUNICIPALITIES).doc(id).get()
+      const muniPromises = topMunicipalityIds.map((id) =>
+        client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+        }))
       );
-      const muniDocs = await Promise.all(muniPromises);
-      muniDocs.forEach((doc) => {
-        if (doc.exists && issuesByMunicipality[doc.id]) {
-          issuesByMunicipality[doc.id].name = doc.data()?.name || "Unknown";
+      const muniResults = await Promise.all(muniPromises);
+      muniResults.forEach((result) => {
+        if (result.Item && issuesByMunicipality[result.Item.municipalityId as string]) {
+          issuesByMunicipality[result.Item.municipalityId as string].name =
+            (result.Item.name as string) || "Unknown";
         }
       });
     }
@@ -1076,7 +1191,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
       : 0;
 
     // Resolution rate
-    const totalIssues = issuesSnapshot.size;
+    const totalIssues = allIssues.length;
     const resolutionRate = totalIssues > 0
       ? Math.round((statusBreakdown.CLOSED / totalIssues) * 100)
       : 0;
@@ -1106,9 +1221,10 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     // Check ML service health
     let mlServiceStatus = "unknown";
     try {
-      const mlResponse = await fetch(`${process.env.ML_SERVICE_URL || "http://localhost:8000"}/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
+      const mlResponse = await fetch(
+        `${process.env.ML_SERVICE_URL || "http://localhost:8000"}/health`,
+        { signal: AbortSignal.timeout(2000) }
+      );
       if (mlResponse.ok) {
         mlServiceStatus = "healthy";
       } else {
@@ -1122,10 +1238,10 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
       success: true,
       data: {
         // Basic stats
-        totalUsers: usersCount.data().count,
-        totalMunicipalities: municipalitiesCount.data().count,
-        totalIssues: issuesCount.data().count,
-        pendingRegistrations: pendingRegistrations.data().count,
+        totalUsers: usersCount.Count || 0,
+        totalMunicipalities: municipalitiesCount.Count || 0,
+        totalIssues: issuesCount.Count || 0,
+        pendingRegistrations: pendingRegistrations.Count || 0,
         issuesByStatus: statusBreakdown,
 
         // Enhanced analytics

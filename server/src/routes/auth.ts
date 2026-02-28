@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import type { Router as IRouter } from 'express';
-import { getAdminAuth, getAdminDb, COLLECTIONS } from '../shared/firebase';
+import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { getDocClient, TABLES } from '../shared/aws';
 import { loginInputSchema } from '../shared/validation';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
 
@@ -9,10 +10,12 @@ const router: IRouter = Router();
 // Get current user profile (authenticated)
 router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const db = getAdminDb();
-    const userDoc = await db.collection(COLLECTIONS.USERS).doc(req.user!.uid).get();
+    const result = await getDocClient().send(new GetCommand({
+      TableName: TABLES.USERS,
+      Key: { uid: req.user!.uid },
+    }));
 
-    if (!userDoc.exists) {
+    if (!result.Item) {
       return res.status(404).json({
         success: false,
         data: null,
@@ -22,10 +25,8 @@ router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Respons
     }
 
     const user = {
-      id: userDoc.id,
-      ...userDoc.data(),
-      createdAt: userDoc.data()?.createdAt?.toDate(),
-      lastLoginAt: userDoc.data()?.lastLoginAt?.toDate()
+      id: result.Item.uid,
+      ...result.Item,
     };
 
     res.json({
@@ -63,12 +64,14 @@ router.post('/verify', authMiddleware, async (req: AuthenticatedRequest, res: Re
 // Update last login (called after successful auth)
 router.post('/login', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const db = getAdminDb();
-    const now = new Date();
+    const now = new Date().toISOString();
 
-    await db.collection(COLLECTIONS.USERS).doc(req.user!.uid).update({
-      lastLoginAt: now
-    });
+    await getDocClient().send(new UpdateCommand({
+      TableName: TABLES.USERS,
+      Key: { uid: req.user!.uid },
+      UpdateExpression: 'SET lastLoginAt = :now',
+      ExpressionAttributeValues: { ':now': now },
+    }));
 
     res.json({
       success: true,

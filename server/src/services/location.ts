@@ -1,9 +1,12 @@
 /**
  * Location Service - Uses Google Maps API for geocoding and municipality assignment
+ * AI classification uses AWS Bedrock (configured in commit 10)
  */
 
+import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { getDocClient, TABLES } from "../shared/aws";
+
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // Log API key status on startup
 if (!GOOGLE_MAPS_API_KEY) {
@@ -25,20 +28,9 @@ interface GeocodeResponse {
   }>;
 }
 
-// Type definitions for Gemini API response
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-}
-
 // Municipality document type
 interface MunicipalityDoc {
-  id: string;
+  municipalityId: string;
   name?: string;
   state?: string;
   district?: string;
@@ -93,7 +85,6 @@ export async function reverseGeocode(lat: number, lng: number): Promise<ReverseG
     const result = data.results[0];
     const components = result.address_components || [];
 
-    // Extract address components
     let state = '';
     let district = '';
     let city = '';
@@ -162,8 +153,7 @@ export function isPointInBounds(
  */
 export async function findMunicipalityForLocation(
   lat: number,
-  lng: number,
-  db: FirebaseFirestore.Firestore
+  lng: number
 ): Promise<MunicipalityMatch | null> {
   try {
     // First, reverse geocode to get address components
@@ -173,18 +163,25 @@ export async function findMunicipalityForLocation(
       console.warn('Could not geocode location, using fallback');
     }
 
-    // Get all municipalities
-    const municipalitiesSnapshot = await db.collection('municipalities').get();
-    const municipalities: MunicipalityDoc[] = municipalitiesSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as MunicipalityDoc));
+    // Get all municipalities from DynamoDB
+    const result = await getDocClient().send(new ScanCommand({
+      TableName: TABLES.MUNICIPALITIES,
+    }));
+
+    const municipalities: MunicipalityDoc[] = (result.Items || []).map((item) => ({
+      municipalityId: item.municipalityId,
+      name: item.name,
+      state: item.state,
+      district: item.district,
+      bounds: item.bounds,
+      ...item,
+    }));
 
     // Priority 1: Check if point is within any municipality bounds
     for (const muni of municipalities) {
       if (muni.bounds && isPointInBounds(lat, lng, muni.bounds)) {
         return {
-          municipalityId: muni.id,
+          municipalityId: muni.municipalityId,
           name: muni.name || 'Unknown',
           confidence: 0.95,
           matchType: 'BOUNDS'
@@ -201,7 +198,7 @@ export async function findMunicipalityForLocation(
 
       if (districtMatch) {
         return {
-          municipalityId: districtMatch.id,
+          municipalityId: districtMatch.municipalityId,
           name: districtMatch.name || 'Unknown',
           confidence: 0.8,
           matchType: 'DISTRICT'
@@ -209,7 +206,7 @@ export async function findMunicipalityForLocation(
       }
     }
 
-    // Priority 3: Match by state (less accurate)
+    // Priority 3: Match by state
     if (geocodeResult?.state) {
       const stateMatch = municipalities.find(m => 
         m.state?.toLowerCase() === geocodeResult.state.toLowerCase()
@@ -217,7 +214,7 @@ export async function findMunicipalityForLocation(
 
       if (stateMatch) {
         return {
-          municipalityId: stateMatch.id,
+          municipalityId: stateMatch.municipalityId,
           name: stateMatch.name || 'Unknown',
           confidence: 0.5,
           matchType: 'STATE'
@@ -225,10 +222,10 @@ export async function findMunicipalityForLocation(
       }
     }
 
-    // Priority 4: Fallback to any municipality (for demo purposes)
+    // Priority 4: Fallback
     if (municipalities.length > 0) {
       return {
-        municipalityId: municipalities[0].id,
+        municipalityId: municipalities[0].municipalityId,
         name: municipalities[0].name || 'Unknown',
         confidence: 0.1,
         matchType: 'FALLBACK'
@@ -275,7 +272,6 @@ export async function getCityBounds(
   state: string
 ): Promise<{ north: number; south: number; east: number; west: number } | null> {
   try {
-    // Try different search queries for better results
     const searchQueries = [
       `${cityName}, ${district}, ${state}, India`,
       `${district}, ${state}, India`,
@@ -304,14 +300,11 @@ export async function getCityBounds(
 
       if (data.status === 'OK' && data.results && data.results.length > 0) {
         const geometry = data.results[0].geometry;
-        
-        // Prefer bounds over viewport (bounds is more accurate for cities)
         const boundsData = geometry.bounds || geometry.viewport;
         
         if (boundsData) {
-          // Add a small buffer (about 5km) to the bounds for better coverage
-          const latBuffer = 0.045; // ~5km
-          const lngBuffer = 0.05;  // ~5km
+          const latBuffer = 0.045;
+          const lngBuffer = 0.05;
           
           return {
             north: boundsData.northeast.lat + latBuffer,
@@ -339,7 +332,6 @@ export async function getMunicipalityBounds(
   district: string,
   state: string
 ): Promise<{ north: number; south: number; east: number; west: number }> {
-  // Try to get bounds from Google Maps
   const bounds = await getCityBounds(municipalityName, district, state);
   
   if (bounds) {
@@ -362,7 +354,6 @@ export async function getMunicipalityBounds(
   const cityKey = municipalityName.toLowerCase().replace(/[^a-z]/g, '');
   const districtKey = district.toLowerCase().replace(/[^a-z]/g, '');
 
-  // Check if we have predefined bounds
   if (cityBounds[cityKey]) {
     console.log(`Using predefined bounds for ${cityKey}`);
     return cityBounds[cityKey];
@@ -372,75 +363,22 @@ export async function getMunicipalityBounds(
     return cityBounds[districtKey];
   }
 
-  // Last resort: Return zero bounds (will use district/state matching instead)
   console.warn(`No bounds available for ${municipalityName}, ${district}, ${state}`);
   return { north: 0, south: 0, east: 0, west: 0 };
 }
 
 /**
- * Use Gemini to classify issue type from description
- * (For later ML implementation)
+ * Classify issue type using AWS Bedrock
+ * Uses the configurable model from BEDROCK_MODEL_ID env var
  */
-export async function classifyIssueWithGemini(description: string, imageUrl?: string): Promise<{
+export async function classifyIssueWithAI(description: string, imageUrl?: string): Promise<{
   type: string;
   confidence: number;
 } | null> {
-  if (!GEMINI_API_KEY) {
-    console.warn('Gemini API key not configured');
-    return null;
-  }
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-    
-    const prompt = `You are a civic issue classifier for an Indian municipal complaint system.
-    
-Classify the following issue description into one of these categories:
-- POTHOLE: Road potholes, damaged road surface
-- GARBAGE: Garbage accumulation, waste not collected
-- DRAINAGE: Blocked drains, water logging, drainage issues
-- ROAD_DAMAGE: Road cracks, damaged roads (not potholes)
-- STREETLIGHT: Non-functional streetlights, lighting issues
-- WATER_SUPPLY: Water supply problems, pipe leaks
-- SEWAGE: Sewage overflow, sanitation issues
-- ENCROACHMENT: Illegal construction, footpath blocking
-- OTHER: Any other civic issue
-
-Issue Description: "${description}"
-
-Respond ONLY with a JSON object in this exact format:
-{"type": "CATEGORY_NAME", "confidence": 0.0}
-
-The confidence should be between 0 and 1.`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }]
-        }]
-      })
-    });
-
-    const data = await response.json() as GeminiResponse;
-    
-    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-      const text = data.candidates[0].content.parts[0].text;
-      // Extract JSON from response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Gemini classification error:', error);
-    return null;
-  }
+  // Will be implemented in commit 10 with AWS Bedrock
+  // For now, return null to use default type
+  console.log('AI classification pending Bedrock integration');
+  return null;
 }
 
 export default {
@@ -448,7 +386,7 @@ export default {
   isPointInBounds,
   findMunicipalityForLocation,
   getAdministrativeRegion,
-  classifyIssueWithGemini,
+  classifyIssueWithAI,
   getCityBounds,
   getMunicipalityBounds
 };

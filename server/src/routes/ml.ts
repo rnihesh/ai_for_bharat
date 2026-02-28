@@ -1,37 +1,46 @@
 /**
- * ML Routes
- *
- * Routes for ML-powered features: clustering, severity, risk prediction.
+ * ML Routes - Clustering, severity, risk prediction
  */
 
 import { Router, Request, Response } from "express";
-import { getAdminDb, COLLECTIONS } from "../shared/firebase";
+import { ScanCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { getDocClient, TABLES, GSI } from "../shared/aws";
 import { mlService } from "../services/ml";
 
 const router = Router();
 
 /**
  * POST /api/ml/cluster
- * Cluster issues by geographic proximity
  */
 router.post("/cluster", async (req: Request, res: Response) => {
   try {
     const { eps_meters, min_samples, bounds, municipalityId, status } = req.body;
+    const client = getDocClient();
 
-    // Build query for issues
-    const db = getAdminDb();
-    let query = db.collection(COLLECTIONS.ISSUES).limit(500);
+    let items: Record<string, any>[] = [];
 
     if (municipalityId) {
-      query = query.where("municipalityId", "==", municipalityId);
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.ISSUES,
+        IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+        KeyConditionExpression: 'municipalityId = :mid',
+        ExpressionAttributeValues: { ':mid': municipalityId },
+        Limit: 500,
+      }));
+      items = result.Items || [];
+    } else {
+      const result = await client.send(new ScanCommand({
+        TableName: TABLES.ISSUES,
+        Limit: 500,
+      }));
+      items = result.Items || [];
     }
 
+    // Apply status filter
     if (status) {
-      query = query.where("status", "==", status);
+      items = items.filter((i) => i.status === status);
     }
 
-    // Fetch issues
-    const snapshot = await query.get();
     const issues: Array<{
       id: string;
       location: { latitude: number; longitude: number };
@@ -39,36 +48,34 @@ router.post("/cluster", async (req: Request, res: Response) => {
       severity?: number;
     }> = [];
 
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.location?.latitude && data.location?.longitude) {
+    for (const item of items) {
+      if (item.location?.latitude && item.location?.longitude) {
         // Filter by bounds if provided
         if (bounds) {
-          const lat = data.location.latitude;
-          const lng = data.location.longitude;
+          const lat = item.location.latitude;
+          const lng = item.location.longitude;
           if (
             lat < bounds.south ||
             lat > bounds.north ||
             lng < bounds.west ||
             lng > bounds.east
           ) {
-            return;
+            continue;
           }
         }
 
         issues.push({
-          id: doc.id,
+          id: item.issueId,
           location: {
-            latitude: data.location.latitude,
-            longitude: data.location.longitude,
+            latitude: item.location.latitude,
+            longitude: item.location.longitude,
           },
-          type: data.type,
-          severity: data.priority_score,
+          type: item.type,
+          severity: item.priority_score,
         });
       }
-    });
+    }
 
-    // Call ML service
     const result = await mlService.clusterIssues(issues, {
       eps_meters,
       min_samples,
@@ -99,7 +106,6 @@ router.post("/cluster", async (req: Request, res: Response) => {
 
 /**
  * POST /api/ml/predict-severity
- * Predict severity for an issue
  */
 router.post("/predict-severity", async (req: Request, res: Response) => {
   try {
@@ -132,7 +138,6 @@ router.post("/predict-severity", async (req: Request, res: Response) => {
 
 /**
  * POST /api/ml/predict-risk
- * Predict risk for a location
  */
 router.post("/predict-risk", async (req: Request, res: Response) => {
   try {
@@ -154,40 +159,49 @@ router.post("/predict-risk", async (req: Request, res: Response) => {
       });
     }
 
-    // Get historical data for the location
+    const client = getDocClient();
+
+    // Get historical data for the location (~1km radius)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // Count issues in area (0.01 degree ≈ 1km)
-    const db = getAdminDb();
-    const nearbyIssuesSnapshot = await db
-      .collection(COLLECTIONS.ISSUES)
-      .where("location.latitude", ">=", latitude - 0.01)
-      .where("location.latitude", "<=", latitude + 0.01)
-      .get();
+    // Scan for nearby issues (latitude filter, then filter longitude in memory)
+    const nearbyResult = await client.send(new ScanCommand({
+      TableName: TABLES.ISSUES,
+      FilterExpression: '#loc.#lat BETWEEN :south AND :north',
+      ExpressionAttributeNames: {
+        '#loc': 'location',
+        '#lat': 'latitude',
+      },
+      ExpressionAttributeValues: {
+        ':south': latitude - 0.01,
+        ':north': latitude + 0.01,
+      },
+    }));
 
     let issueCount30d = 0;
     let resolvedCount = 0;
     let lastIssueDate: Date | null = null;
 
-    nearbyIssuesSnapshot.forEach((doc) => {
-      const data = doc.data();
-      const lng = data.location?.longitude;
-      if (lng && Math.abs(lng - longitude) <= 0.01) {
-        const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
-        if (createdAt >= thirtyDaysAgo) {
-          issueCount30d++;
-        }
-        if (data.status === "CLOSED") {
-          resolvedCount++;
-        }
-        if (!lastIssueDate || createdAt > lastIssueDate) {
-          lastIssueDate = createdAt;
-        }
-      }
+    const nearbyItems = (nearbyResult.Items || []).filter((item) => {
+      const lng = item.location?.longitude;
+      return lng && Math.abs(lng - longitude) <= 0.01;
     });
 
-    const totalNearby = nearbyIssuesSnapshot.size;
+    for (const item of nearbyItems) {
+      const createdAt = new Date(item.createdAt);
+      if (createdAt >= thirtyDaysAgo) {
+        issueCount30d++;
+      }
+      if (item.status === "CLOSED") {
+        resolvedCount++;
+      }
+      if (!lastIssueDate || createdAt > lastIssueDate) {
+        lastIssueDate = createdAt;
+      }
+    }
+
+    const totalNearby = nearbyItems.length;
     const resolutionRate = totalNearby > 0 ? resolvedCount / totalNearby : 0.7;
     const daysSinceLastIssue = lastIssueDate
       ? Math.floor((Date.now() - lastIssueDate.getTime()) / (1000 * 60 * 60 * 24))
@@ -233,7 +247,6 @@ router.post("/predict-risk", async (req: Request, res: Response) => {
 
 /**
  * POST /api/ml/predict-risk-grid
- * Predict risk for a grid (for heatmap)
  */
 router.post("/predict-risk-grid", async (req: Request, res: Response) => {
   try {
@@ -278,7 +291,6 @@ router.post("/predict-risk-grid", async (req: Request, res: Response) => {
 
 /**
  * GET /api/ml/health
- * Check ML service health
  */
 router.get("/health", async (_req: Request, res: Response) => {
   try {
@@ -302,7 +314,6 @@ router.get("/health", async (_req: Request, res: Response) => {
 
 /**
  * GET /api/ml/models
- * Get ML models information and metrics
  */
 router.get("/models", async (_req: Request, res: Response) => {
   try {

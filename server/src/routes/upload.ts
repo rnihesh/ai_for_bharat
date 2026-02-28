@@ -1,44 +1,44 @@
 import { Router, Request, Response } from "express";
 import type { Router as IRouter } from "express";
-import { v2 as cloudinary } from "cloudinary";
+import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { getS3Client, AWS_CONFIG } from "../shared/aws";
 
 const router: IRouter = Router();
 
-// Configure Cloudinary from environment variables
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Generate a signed upload URL
+// Generate a presigned upload URL for S3
 router.post("/signature", async (_req: Request, res: Response) => {
   try {
-    const timestamp = Math.round(new Date().getTime() / 1000);
-    const folder = "civiclemma/issues";
+    const s3 = getS3Client();
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).slice(2, 8);
+    const key = `civiclemma/issues/${timestamp}-${randomSuffix}`;
 
-    const signature = cloudinary.utils.api_sign_request(
-      {
-        timestamp,
-        folder,
-      },
-      process.env.CLOUDINARY_API_SECRET || ""
-    );
+    const command = new PutObjectCommand({
+      Bucket: AWS_CONFIG.s3Bucket,
+      Key: key,
+      ContentType: "image/*",
+    });
+
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+
+    const publicUrl = AWS_CONFIG.cloudfrontDomain
+      ? `https://${AWS_CONFIG.cloudfrontDomain}/${key}`
+      : `https://${AWS_CONFIG.s3Bucket}.s3.amazonaws.com/${key}`;
 
     res.json({
       success: true,
       data: {
-        signature,
-        timestamp,
-        folder,
-        cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-        apiKey: process.env.CLOUDINARY_API_KEY,
+        uploadUrl,
+        key,
+        publicUrl,
+        bucket: AWS_CONFIG.s3Bucket,
       },
       error: null,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("Error generating Cloudinary signature:", error);
+    console.error("Error generating S3 presigned URL:", error);
     res.status(500).json({
       success: false,
       data: null,
@@ -48,7 +48,7 @@ router.post("/signature", async (_req: Request, res: Response) => {
   }
 });
 
-// Get optimized image URL
+// Get optimized image URL (CloudFront)
 router.get("/optimize", (req: Request, res: Response) => {
   const { url, width, height, quality } = req.query;
 
@@ -62,19 +62,13 @@ router.get("/optimize", (req: Request, res: Response) => {
   }
 
   try {
-    const transformations: string[] = ["f_auto"];
-
-    if (quality) transformations.push(`q_${quality}`);
-    if (width) transformations.push(`w_${width}`);
-    if (height) transformations.push(`h_${height}`);
-
-    // Transform Cloudinary URL
-    if (url.includes("cloudinary.com")) {
-      const parts = url.split("/upload/");
-      if (parts.length === 2) {
-        const optimizedUrl = `${parts[0]}/upload/${transformations.join(",")}/${
-          parts[1]
-        }`;
+    // If CloudFront is configured, transform the URL
+    if (AWS_CONFIG.cloudfrontDomain && url.includes('s3.amazonaws.com')) {
+      // Extract key from S3 URL and build CloudFront URL
+      const s3UrlParts = url.split('.s3.amazonaws.com/');
+      if (s3UrlParts.length === 2) {
+        const key = s3UrlParts[1];
+        const optimizedUrl = `https://${AWS_CONFIG.cloudfrontDomain}/${key}`;
         return res.json({
           success: true,
           data: { url: optimizedUrl },
@@ -84,6 +78,7 @@ router.get("/optimize", (req: Request, res: Response) => {
       }
     }
 
+    // Return URL as-is if no optimization is possible
     res.json({
       success: true,
       data: { url },

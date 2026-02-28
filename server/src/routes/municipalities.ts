@@ -1,6 +1,13 @@
 import { Router, Request, Response } from "express";
 import type { Router as IRouter } from "express";
-import { getAdminDb, COLLECTIONS } from "../shared/firebase";
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { getDocClient, TABLES, GSI } from "../shared/aws";
 import {
   paginationSchema,
   municipalityRegistrationSchema,
@@ -17,34 +24,33 @@ const router: IRouter = Router();
 // Get leaderboard (public)
 router.get("/leaderboard", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
     const { page, pageSize } = paginationSchema.parse(req.query);
 
-    const snapshot = await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .orderBy("score", "desc")
-      .limit(pageSize)
-      .offset((page - 1) * pageSize)
-      .get();
+    // Query municipalities sorted by score (descending)
+    const result = await client.send(new QueryCommand({
+      TableName: TABLES.MUNICIPALITIES,
+      IndexName: GSI.MUNICIPALITIES_BY_SCORE,
+      KeyConditionExpression: '_pk = :pk',
+      ExpressionAttributeValues: { ':pk': 'ALL' },
+      ScanIndexForward: false,
+    }));
 
-    const entries: LeaderboardEntry[] = snapshot.docs.map((doc, index) => ({
-      rank: (page - 1) * pageSize + index + 1,
+    const allItems = result.Items || [];
+    const total = allItems.length;
+    const offset = (page - 1) * pageSize;
+    const pageItems = allItems.slice(offset, offset + pageSize);
+
+    const entries: LeaderboardEntry[] = pageItems.map((item, index) => ({
+      rank: offset + index + 1,
       municipality: {
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
+        id: item.municipalityId,
+        ...item,
       } as Municipality,
-      score: doc.data().score,
+      score: item.score,
       trend: "STABLE" as const,
       previousRank: null,
     }));
-
-    const countSnapshot = await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .count()
-      .get();
-    const total = countSnapshot.data().count;
 
     res.json({
       success: true,
@@ -57,10 +63,7 @@ router.get("/leaderboard", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error(
-      "Error fetching leaderboard:",
-      (error as any)?.message || String(error)
-    );
+    console.error("Error fetching leaderboard:", (error as any)?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -73,36 +76,37 @@ router.get("/leaderboard", async (req: Request, res: Response) => {
 // Get all municipalities (public)
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
     const { page, pageSize } = paginationSchema.parse(req.query);
     const { state, district } = req.query;
 
-    let query = db.collection(COLLECTIONS.MUNICIPALITIES).orderBy("name");
-
-    if (state) {
-      query = query.where("state", "==", state);
-    }
-    if (district) {
-      query = query.where("district", "==", district);
-    }
-
-    const snapshot = await query
-      .limit(pageSize)
-      .offset((page - 1) * pageSize)
-      .get();
-
-    const municipalities = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate(),
+    // Query by name GSI for sorted results
+    const result = await client.send(new QueryCommand({
+      TableName: TABLES.MUNICIPALITIES,
+      IndexName: GSI.MUNICIPALITIES_BY_NAME,
+      KeyConditionExpression: '_pk = :pk',
+      ExpressionAttributeValues: { ':pk': 'ALL' },
+      ScanIndexForward: true,
     }));
 
-    const countSnapshot = await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .count()
-      .get();
-    const total = countSnapshot.data().count;
+    let items = result.Items || [];
+
+    // Apply filters in memory
+    if (state) {
+      items = items.filter((m) => m.state === state);
+    }
+    if (district) {
+      items = items.filter((m) => m.district === district);
+    }
+
+    const total = items.length;
+    const offset = (page - 1) * pageSize;
+    const pageItems = items.slice(offset, offset + pageSize);
+
+    const municipalities = pageItems.map((item) => ({
+      id: item.municipalityId,
+      ...item,
+    }));
 
     res.json({
       success: true,
@@ -111,16 +115,13 @@ router.get("/", async (req: Request, res: Response) => {
         total,
         page,
         pageSize,
-        hasMore: (page - 1) * pageSize + municipalities.length < total,
+        hasMore: offset + municipalities.length < total,
       },
       error: null,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error(
-      "Error fetching municipalities:",
-      (error as any)?.message || String(error)
-    );
+    console.error("Error fetching municipalities:", (error as any)?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -133,13 +134,12 @@ router.get("/", async (req: Request, res: Response) => {
 // Get single municipality (public)
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
-    const doc = await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .doc(req.params.id)
-      .get();
+    const result = await getDocClient().send(new GetCommand({
+      TableName: TABLES.MUNICIPALITIES,
+      Key: { municipalityId: req.params.id },
+    }));
 
-    if (!doc.exists) {
+    if (!result.Item) {
       return res.status(404).json({
         success: false,
         data: null,
@@ -149,10 +149,8 @@ router.get("/:id", async (req: Request, res: Response) => {
     }
 
     const municipality = {
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data()?.createdAt?.toDate(),
-      updatedAt: doc.data()?.updatedAt?.toDate(),
+      id: result.Item.municipalityId,
+      ...result.Item,
     };
 
     res.json({
@@ -162,10 +160,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error(
-      "Error fetching municipality:",
-      (error as any)?.message || String(error)
-    );
+    console.error("Error fetching municipality:", (error as any)?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -178,18 +173,19 @@ router.get("/:id", async (req: Request, res: Response) => {
 // Get municipality stats (public)
 router.get("/:id/stats", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
     const municipalityId = req.params.id;
 
     // Get all issues for this municipality
-    const issuesSnapshot = await db
-      .collection(COLLECTIONS.ISSUES)
-      .where("municipalityId", "==", municipalityId)
-      .get();
+    const issuesResult = await client.send(new QueryCommand({
+      TableName: TABLES.ISSUES,
+      IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+      KeyConditionExpression: 'municipalityId = :mid',
+      ExpressionAttributeValues: { ':mid': municipalityId },
+    }));
 
-    const issues = issuesSnapshot.docs.map((doc) => doc.data());
+    const issues = issuesResult.Items || [];
 
-    // Calculate stats
     const stats: MunicipalityStats = {
       municipalityId,
       totalIssues: issues.length,
@@ -207,10 +203,7 @@ router.get("/:id/stats", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error(
-      "Error fetching municipality stats:",
-      (error as any)?.message || String(error)
-    );
+    console.error("Error fetching municipality stats:", (error as any)?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -229,10 +222,8 @@ function calculateAvgResolutionTime(issues: any[]): number | null {
   if (resolvedIssues.length === 0) return null;
 
   const totalHours = resolvedIssues.reduce((sum, issue) => {
-    const created = issue.createdAt?.toDate?.() || new Date(issue.createdAt);
-    const resolved =
-      issue.resolution.respondedAt?.toDate?.() ||
-      new Date(issue.resolution.respondedAt);
+    const created = new Date(issue.createdAt);
+    const resolved = new Date(issue.resolution.respondedAt);
     return sum + (resolved.getTime() - created.getTime()) / (1000 * 60 * 60);
   }, 0);
 
@@ -252,10 +243,8 @@ function calculateMonthlyTrend(
   const monthlyData: Record<string, { issues: number; resolved: number }> = {};
 
   issues.forEach((issue) => {
-    const date = issue.createdAt?.toDate?.() || new Date(issue.createdAt);
-    const monthKey = `${date.getFullYear()}-${String(
-      date.getMonth() + 1
-    ).padStart(2, "0")}`;
+    const date = new Date(issue.createdAt);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
     if (!monthlyData[monthKey]) {
       monthlyData[monthKey] = { issues: 0, resolved: 0 };
@@ -277,18 +266,15 @@ function calculateMonthlyTrend(
 // MUNICIPALITY USER REGISTRATION
 // ============================================
 
-// Submit municipality registration request (requires authentication)
+// Submit municipality registration request
 router.post(
   "/register",
   authMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
 
-      // Validate input
-      const validationResult = municipalityRegistrationSchema.safeParse(
-        req.body
-      );
+      const validationResult = municipalityRegistrationSchema.safeParse(req.body);
 
       if (!validationResult.success) {
         return res.status(400).json({
@@ -302,14 +288,16 @@ router.post(
       const input = validationResult.data;
 
       // Check if user already has a pending registration
-      const existingReg = await db
-        .collection("municipality_registrations")
-        .where("userId", "==", req.user!.uid)
-        .where("status", "==", "PENDING")
-        .limit(1)
-        .get();
+      const existingResult = await client.send(new QueryCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        IndexName: GSI.REGISTRATIONS_BY_USER,
+        KeyConditionExpression: 'userId = :uid AND #status = :status',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':uid': req.user!.uid, ':status': 'PENDING' },
+        Limit: 1,
+      }));
 
-      if (!existingReg.empty) {
+      if (existingResult.Items && existingResult.Items.length > 0) {
         return res.status(400).json({
           success: false,
           data: null,
@@ -319,11 +307,11 @@ router.post(
       }
 
       // Check if user is already a municipality user
-      const userDoc = await db
-        .collection(COLLECTIONS.USERS)
-        .doc(req.user!.uid)
-        .get();
-      if (userDoc.exists && userDoc.data()?.role === "municipality") {
+      const userResult = await client.send(new GetCommand({
+        TableName: TABLES.USERS,
+        Key: { uid: req.user!.uid },
+      }));
+      if (userResult.Item?.role === "municipality") {
         return res.status(400).json({
           success: false,
           data: null,
@@ -332,8 +320,11 @@ router.post(
         });
       }
 
-      const now = new Date();
+      const now = new Date().toISOString();
+      const registrationId = `REG-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
       const registrationData = {
+        registrationId,
         ...input,
         userId: req.user!.uid,
         userEmail: req.user!.email,
@@ -342,26 +333,23 @@ router.post(
         updatedAt: now,
       };
 
-      const docRef = await db
-        .collection("municipality_registrations")
-        .add(registrationData);
+      await client.send(new PutCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        Item: registrationData,
+      }));
 
       res.status(201).json({
         success: true,
         data: {
-          id: docRef.id,
+          id: registrationId,
           status: "PENDING",
-          message:
-            "Your registration request has been submitted. You will be notified once it is reviewed.",
+          message: "Your registration request has been submitted. You will be notified once it is reviewed.",
         },
         error: null,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
-      console.error(
-        "Error submitting registration:",
-        (error as any)?.message || String(error)
-      );
+      console.error("Error submitting registration:", (error as any)?.message || String(error));
       res.status(500).json({
         success: false,
         data: null,
@@ -378,16 +366,18 @@ router.get(
   authMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
 
-      const snapshot = await db
-        .collection("municipality_registrations")
-        .where("userId", "==", req.user!.uid)
-        .orderBy("createdAt", "desc")
-        .limit(1)
-        .get();
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+        IndexName: GSI.REGISTRATIONS_BY_USER,
+        KeyConditionExpression: 'userId = :uid',
+        ExpressionAttributeValues: { ':uid': req.user!.uid },
+        ScanIndexForward: false,
+        Limit: 1,
+      }));
 
-      if (snapshot.empty) {
+      if (!result.Items || result.Items.length === 0) {
         return res.json({
           success: true,
           data: null,
@@ -397,10 +387,8 @@ router.get(
       }
 
       const registration = {
-        id: snapshot.docs[0].id,
-        ...snapshot.docs[0].data(),
-        createdAt: snapshot.docs[0].data().createdAt?.toDate(),
-        updatedAt: snapshot.docs[0].data().updatedAt?.toDate(),
+        id: result.Items[0].registrationId,
+        ...result.Items[0],
       };
 
       res.json({
@@ -410,10 +398,7 @@ router.get(
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
-      console.error(
-        "Error fetching registration status:",
-        (error as any)?.message || String(error)
-      );
+      console.error("Error fetching registration status:", (error as any)?.message || String(error));
       res.status(500).json({
         success: false,
         data: null,

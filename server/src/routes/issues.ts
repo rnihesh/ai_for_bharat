@@ -1,6 +1,14 @@
 import { Router, Request, Response } from "express";
 import type { Router as IRouter } from "express";
-import { getAdminDb, COLLECTIONS } from "../shared/firebase";
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  UpdateCommand,
+  DeleteCommand,
+  ScanCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { getDocClient, TABLES, GSI } from "../shared/aws";
 import {
   createIssueInputSchema,
   respondToIssueInputSchema,
@@ -17,7 +25,7 @@ import {
 import {
   findMunicipalityForLocation,
   getAdministrativeRegion,
-  classifyIssueWithGemini,
+  classifyIssueWithAI,
 } from "../services/location";
 import type { Issue, IssueStatus, GeoLocation } from "../shared/types";
 
@@ -25,39 +33,49 @@ const router: IRouter = Router();
 
 // Helper function to recalculate municipality score
 async function recalculateMunicipalityScore(municipalityId: string) {
-  const db = getAdminDb();
+  const client = getDocClient();
 
   // Get all open issues for this municipality
-  const openIssuesSnapshot = await db
-    .collection(COLLECTIONS.ISSUES)
-    .where("municipalityId", "==", municipalityId)
-    .where("status", "==", "OPEN")
-    .get();
-
-  const openIssues = openIssuesSnapshot.docs.map((doc) => ({
-    id: doc.id,
-    createdAt:
-      doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt),
+  const openResult = await client.send(new QueryCommand({
+    TableName: TABLES.ISSUES,
+    IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+    KeyConditionExpression: 'municipalityId = :mid',
+    FilterExpression: '#status = :status',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: { ':mid': municipalityId, ':status': 'OPEN' },
   }));
 
-  // Get count of closed issues (for bonus)
-  const closedIssuesSnapshot = await db
-    .collection(COLLECTIONS.ISSUES)
-    .where("municipalityId", "==", municipalityId)
-    .where("status", "==", "CLOSED")
-    .count()
-    .get();
+  const openIssues = (openResult.Items || []).map((item) => ({
+    id: item.issueId,
+    createdAt: new Date(item.createdAt),
+  }));
 
-  const closedCount = closedIssuesSnapshot.data().count;
+  // Get count of closed issues
+  const closedResult = await client.send(new QueryCommand({
+    TableName: TABLES.ISSUES,
+    IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+    KeyConditionExpression: 'municipalityId = :mid',
+    FilterExpression: '#status = :status',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: { ':mid': municipalityId, ':status': 'CLOSED' },
+    Select: 'COUNT',
+  }));
+
+  const closedCount = closedResult.Count || 0;
 
   // Calculate new score
   const { score } = calculateMunicipalityScore(openIssues, closedCount);
 
   // Update municipality score
-  await db.collection(COLLECTIONS.MUNICIPALITIES).doc(municipalityId).update({
-    score,
-    updatedAt: new Date(),
-  });
+  await client.send(new UpdateCommand({
+    TableName: TABLES.MUNICIPALITIES,
+    Key: { municipalityId },
+    UpdateExpression: 'SET score = :score, updatedAt = :now',
+    ExpressionAttributeValues: {
+      ':score': score,
+      ':now': new Date().toISOString(),
+    },
+  }));
 
   return score;
 }
@@ -65,43 +83,56 @@ async function recalculateMunicipalityScore(municipalityId: string) {
 // Get all issues (public)
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
     const { page, pageSize } = paginationSchema.parse(req.query);
     const filters = issueFiltersSchema.parse(req.query);
 
     const hasStatusFilter = filters.status && filters.status.length > 0;
     const hasTypeFilter = filters.type && filters.type.length > 0;
-    
-    // Due to Firestore composite index requirements, we'll fetch all and filter in memory
-    let query: FirebaseFirestore.Query = db.collection(COLLECTIONS.ISSUES)
-      .orderBy("createdAt", "desc");
-    
+
+    let items: Record<string, any>[] = [];
+
     if (filters.municipalityId) {
-      query = query.where("municipalityId", "==", filters.municipalityId);
+      // Use GSI for municipality filter
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.ISSUES,
+        IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+        KeyConditionExpression: 'municipalityId = :mid',
+        ExpressionAttributeValues: { ':mid': filters.municipalityId },
+        ScanIndexForward: false,
+        Limit: 500,
+      }));
+      items = result.Items || [];
+    } else {
+      // Scan all issues, sorted by createdAt desc
+      const result = await client.send(new QueryCommand({
+        TableName: TABLES.ISSUES,
+        IndexName: GSI.ISSUES_BY_CREATED,
+        KeyConditionExpression: '_pk = :pk',
+        ExpressionAttributeValues: { ':pk': 'ALL' },
+        ScanIndexForward: false,
+        Limit: 500,
+      }));
+      items = result.Items || [];
     }
 
-    // Fetch a larger batch to allow for filtering
-    const snapshot = await query.limit(500).get();
+    let issues = items.map((item) => ({
+      id: item.issueId,
+      ...item,
+    }));
 
-    let issues = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate(),
-    })) as any[];
-    
     // Apply filters in memory
     if (hasStatusFilter) {
       issues = issues.filter((issue) => filters.status!.includes(issue.status));
     }
-    
+
     if (hasTypeFilter) {
       issues = issues.filter((issue) => filters.type!.includes(issue.type));
     }
 
     // Get total count for the filtered results
     const total = issues.length;
-    
+
     // Apply pagination
     const offset = (page - 1) * pageSize;
     const paginatedIssues = issues.slice(offset, offset + pageSize);
@@ -120,7 +151,6 @@ router.get("/", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error fetching issues:", error?.message || String(error));
-    console.error("Full error:", error);
     res.status(500).json({
       success: false,
       data: null,
@@ -130,29 +160,35 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// Get global stats (public) - must be before /:id to avoid route conflicts
+// Get global stats (public)
 router.get("/stats", async (_req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
 
     // Get total issues count
-    const totalSnapshot = await db.collection(COLLECTIONS.ISSUES).count().get();
-    const totalIssues = totalSnapshot.data().count;
+    const totalResult = await client.send(new ScanCommand({
+      TableName: TABLES.ISSUES,
+      Select: 'COUNT',
+    }));
+    const totalIssues = totalResult.Count || 0;
 
-    // Get resolved issues count (CLOSED status)
-    const resolvedSnapshot = await db
-      .collection(COLLECTIONS.ISSUES)
-      .where("status", "==", "CLOSED")
-      .count()
-      .get();
-    const resolvedIssues = resolvedSnapshot.data().count;
+    // Get resolved issues count
+    const resolvedResult = await client.send(new QueryCommand({
+      TableName: TABLES.ISSUES,
+      IndexName: GSI.ISSUES_BY_STATUS,
+      KeyConditionExpression: '#status = :status',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: { ':status': 'CLOSED' },
+      Select: 'COUNT',
+    }));
+    const resolvedIssues = resolvedResult.Count || 0;
 
     // Get municipalities count
-    const municipalitiesSnapshot = await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .count()
-      .get();
-    const totalMunicipalities = municipalitiesSnapshot.data().count;
+    const muniResult = await client.send(new ScanCommand({
+      TableName: TABLES.MUNICIPALITIES,
+      Select: 'COUNT',
+    }));
+    const totalMunicipalities = muniResult.Count || 0;
 
     res.json({
       success: true,
@@ -161,16 +197,13 @@ router.get("/stats", async (_req: Request, res: Response) => {
         resolvedIssues,
         openIssues: totalIssues - resolvedIssues,
         totalMunicipalities,
-        avgResponseTime: 48, // This would need more complex calculation
+        avgResponseTime: 48,
       },
       error: null,
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error(
-      "Error fetching global stats:",
-      error?.message || String(error)
-    );
+    console.error("Error fetching global stats:", error?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -183,13 +216,12 @@ router.get("/stats", async (_req: Request, res: Response) => {
 // Get single issue (public)
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
-    const doc = await db
-      .collection(COLLECTIONS.ISSUES)
-      .doc(req.params.id)
-      .get();
+    const result = await getDocClient().send(new GetCommand({
+      TableName: TABLES.ISSUES,
+      Key: { issueId: req.params.id },
+    }));
 
-    if (!doc.exists) {
+    if (!result.Item) {
       return res.status(404).json({
         success: false,
         data: null,
@@ -199,10 +231,8 @@ router.get("/:id", async (req: Request, res: Response) => {
     }
 
     const issue = {
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data()?.createdAt?.toDate(),
-      updatedAt: doc.data()?.updatedAt?.toDate(),
+      id: result.Item.issueId,
+      ...result.Item,
     };
 
     res.json({
@@ -225,7 +255,7 @@ router.get("/:id", async (req: Request, res: Response) => {
 // Get issues by bounds (for map)
 router.get("/map/bounds", async (req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
     const { north, south, east, west } = req.query;
 
     if (!north || !south || !east || !west) {
@@ -237,17 +267,25 @@ router.get("/map/bounds", async (req: Request, res: Response) => {
       });
     }
 
-    const snapshot = await db
-      .collection(COLLECTIONS.ISSUES)
-      .where("location.latitude", ">=", parseFloat(south as string))
-      .where("location.latitude", "<=", parseFloat(north as string))
-      .limit(500)
-      .get();
+    // Scan with filter for latitude range, then filter longitude in memory
+    const result = await client.send(new ScanCommand({
+      TableName: TABLES.ISSUES,
+      FilterExpression: '#loc.#lat BETWEEN :south AND :north',
+      ExpressionAttributeNames: {
+        '#loc': 'location',
+        '#lat': 'latitude',
+      },
+      ExpressionAttributeValues: {
+        ':south': parseFloat(south as string),
+        ':north': parseFloat(north as string),
+      },
+      Limit: 500,
+    }));
 
-    const issues = snapshot.docs
-      .map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
+    const issues = (result.Items || [])
+      .map((item) => ({
+        id: item.issueId,
+        ...item,
       }))
       .filter((issue) => {
         const lng = (issue as any).location?.longitude;
@@ -263,10 +301,7 @@ router.get("/map/bounds", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error(
-      "Error fetching map issues:",
-      error?.message || String(error)
-    );
+    console.error("Error fetching map issues:", error?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -280,18 +315,18 @@ router.get("/map/bounds", async (req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   try {
     const input = createIssueInputSchema.parse(req.body);
-    const db = getAdminDb();
+    const client = getDocClient();
 
     const issueId = generateIssueId();
-    const now = new Date();
+    const now = new Date().toISOString();
 
     const { latitude, longitude } = input.location;
 
-    // Classify issue type using Gemini (if type not provided)
+    // Classify issue type using AI (if type not provided)
     let classifiedType: Issue["type"] = input.type || "POTHOLE";
     if (!input.type) {
       try {
-        const classification = await classifyIssueWithGemini(input.description);
+        const classification = await classifyIssueWithAI(input.description);
         if (classification && classification.confidence > 0.7) {
           classifiedType = classification.type as Issue["type"];
           console.log(
@@ -303,7 +338,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Find the appropriate municipality based on location first
+    // Find the appropriate municipality based on location
     let municipalityId = "MUN-DEFAULT";
     let municipalityData: {
       name?: string;
@@ -311,11 +346,7 @@ router.post("/", async (req: Request, res: Response) => {
       state?: string;
     } | null = null;
     try {
-      const municipalityMatch = await findMunicipalityForLocation(
-        latitude,
-        longitude,
-        db
-      );
+      const municipalityMatch = await findMunicipalityForLocation(latitude, longitude);
       if (municipalityMatch) {
         municipalityId = municipalityMatch.municipalityId;
         console.log(
@@ -323,16 +354,15 @@ router.post("/", async (req: Request, res: Response) => {
         );
 
         // Get municipality data for region fallback
-        const muniDoc = await db
-          .collection(COLLECTIONS.MUNICIPALITIES)
-          .doc(municipalityId)
-          .get();
-        if (muniDoc.exists) {
-          const data = muniDoc.data();
+        const muniResult = await client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId },
+        }));
+        if (muniResult.Item) {
           municipalityData = {
-            name: data?.name || municipalityMatch.name,
-            district: data?.district,
-            state: data?.state,
+            name: muniResult.Item.name || municipalityMatch.name,
+            district: muniResult.Item.district,
+            state: muniResult.Item.state,
           };
         }
       }
@@ -341,7 +371,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Get administrative region from coordinates
-    let region = {
+    let region: Record<string, string> = {
       state: "Unknown",
       district: "Unknown",
       municipality: "Unknown",
@@ -357,8 +387,6 @@ router.post("/", async (req: Request, res: Response) => {
           ...(adminRegion.pincode && { pincode: adminRegion.pincode }),
         };
       } else if (municipalityData) {
-        // Fallback to municipality data if geocoding failed
-        console.log("Using municipality data as fallback for region");
         region = {
           state: municipalityData.state || "Unknown",
           district: municipalityData.district || "Unknown",
@@ -367,7 +395,6 @@ router.post("/", async (req: Request, res: Response) => {
       }
     } catch (err) {
       console.warn("Failed to get administrative region:", err);
-      // Use municipality data as fallback
       if (municipalityData) {
         region = {
           state: municipalityData.state || "Unknown",
@@ -377,16 +404,15 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    const location: GeoLocation = {
-      latitude,
-      longitude,
-    };
+    const location: GeoLocation = { latitude, longitude };
 
     // Support both single imageUrl and imageUrls array
     const imageUrls =
       req.body.imageUrls || (input.imageUrl ? [input.imageUrl] : []);
 
-    const issue: Omit<Issue, "id"> = {
+    const issue = {
+      issueId,
+      _pk: 'ALL', // Partition key for global GSIs
       type: classifiedType,
       description: input.description,
       imageUrl: input.imageUrl || (imageUrls.length > 0 ? imageUrls[0] : null),
@@ -400,32 +426,23 @@ router.post("/", async (req: Request, res: Response) => {
       resolution: null,
     };
 
-    await db
-      .collection(COLLECTIONS.ISSUES)
-      .doc(issueId)
-      .set({
-        ...issue,
-        createdAt: now,
-        updatedAt: now,
-      });
+    await client.send(new PutCommand({
+      TableName: TABLES.ISSUES,
+      Item: issue,
+    }));
 
-    // Update municipality stats
-    await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .doc(municipalityId)
-      .update({
-        totalIssues:
-          require("firebase-admin").firestore.FieldValue.increment(1),
-        updatedAt: now,
-      })
-      .catch(() => {
-        // Municipality might not exist yet
-      });
-
-    // Recalculate municipality score (new issue might affect penalties)
-    await recalculateMunicipalityScore(municipalityId).catch(() => {
-      // Score calculation might fail if municipality doesn't exist
+    // Update municipality stats (atomic increment)
+    await client.send(new UpdateCommand({
+      TableName: TABLES.MUNICIPALITIES,
+      Key: { municipalityId },
+      UpdateExpression: 'ADD totalIssues :inc SET updatedAt = :now',
+      ExpressionAttributeValues: { ':inc': 1, ':now': now },
+    })).catch(() => {
+      // Municipality might not exist yet
     });
+
+    // Recalculate municipality score
+    await recalculateMunicipalityScore(municipalityId).catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -480,12 +497,15 @@ router.post(
         });
       }
 
-      const db = getAdminDb();
+      const client = getDocClient();
 
       // Get the issue
-      const issueDoc = await db.collection(COLLECTIONS.ISSUES).doc(id).get();
+      const issueResult = await client.send(new GetCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+      }));
 
-      if (!issueDoc.exists) {
+      if (!issueResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -494,7 +514,7 @@ router.post(
         });
       }
 
-      const issue = issueDoc.data() as Issue;
+      const issue = issueResult.Item as Record<string, any>;
 
       // Check jurisdiction
       if (issue.municipalityId !== req.user?.municipalityId) {
@@ -506,15 +526,17 @@ router.post(
         });
       }
 
-      const now = new Date();
+      const now = new Date().toISOString();
 
-      await db
-        .collection(COLLECTIONS.ISSUES)
-        .doc(id)
-        .update({
-          status: "CLOSED",
-          municipalityResponse: responseText || resolutionNote,
-          resolution: {
+      await client.send(new UpdateCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+        UpdateExpression: 'SET #status = :status, municipalityResponse = :resp, resolution = :resolution, resolvedAt = :now, updatedAt = :now',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':status': 'CLOSED',
+          ':resp': responseText || resolutionNote,
+          ':resolution': {
             resolutionImageUrl: resolutionImageUrl || null,
             resolutionNote: responseText || resolutionNote,
             respondedAt: now,
@@ -522,50 +544,44 @@ router.post(
             verificationScore: null,
             verifiedAt: null,
           },
-          resolvedAt: now,
-          updatedAt: now,
-        });
+          ':now': now,
+        },
+      }));
 
-      // Update municipality resolved issues counter and recalculate score
+      // Update municipality resolved issues counter
       if (issue.status === "OPEN" && issue.municipalityId) {
-        const muniRef = db
-          .collection(COLLECTIONS.MUNICIPALITIES)
-          .doc(issue.municipalityId);
-        const muniDoc = await muniRef.get();
-        if (muniDoc.exists) {
-          const muniData = muniDoc.data();
-          await muniRef.update({
-            resolvedIssues: (muniData?.resolvedIssues || 0) + 1,
-            updatedAt: now,
-          });
-
-          // Recalculate municipality score
+        const muniResult = await client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: issue.municipalityId },
+        }));
+        if (muniResult.Item) {
+          await client.send(new UpdateCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId: issue.municipalityId },
+            UpdateExpression: 'SET resolvedIssues = :resolved, updatedAt = :now',
+            ExpressionAttributeValues: {
+              ':resolved': (muniResult.Item.resolvedIssues || 0) + 1,
+              ':now': now,
+            },
+          }));
           await recalculateMunicipalityScore(issue.municipalityId);
         }
       }
 
       res.json({
         success: true,
-        data: {
-          issueId: id,
-          status: "CLOSED",
-        },
+        data: { issueId: id, status: "CLOSED" },
         error: null,
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error(
-        "Error responding to issue:",
-        error?.message || String(error)
-      );
+      console.error("Error responding to issue:", error?.message || String(error));
 
       if (error.name === "ZodError") {
         return res.status(400).json({
           success: false,
           data: null,
-          error:
-            "Validation failed: " +
-            error.errors.map((e: any) => e.message).join(", "),
+          error: "Validation failed: " + error.errors.map((e: any) => e.message).join(", "),
           timestamp: new Date().toISOString(),
         });
       }
@@ -601,12 +617,14 @@ router.patch(
         });
       }
 
-      const db = getAdminDb();
+      const client = getDocClient();
 
-      // Get the issue
-      const issueDoc = await db.collection(COLLECTIONS.ISSUES).doc(id).get();
+      const issueResult = await client.send(new GetCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+      }));
 
-      if (!issueDoc.exists) {
+      if (!issueResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -615,9 +633,8 @@ router.patch(
         });
       }
 
-      const issue = issueDoc.data() as Issue;
+      const issue = issueResult.Item;
 
-      // Check jurisdiction
       if (issue.municipalityId !== req.user?.municipalityId) {
         return res.status(403).json({
           success: false,
@@ -627,29 +644,38 @@ router.patch(
         });
       }
 
-      const now = new Date();
+      const now = new Date().toISOString();
+      let updateExpr = 'SET #status = :status, updatedAt = :now';
+      const exprValues: Record<string, any> = { ':status': status, ':now': now };
 
-      await db
-        .collection(COLLECTIONS.ISSUES)
-        .doc(id)
-        .update({
-          status,
-          updatedAt: now,
-          ...(status === "CLOSED" ? { resolvedAt: now } : {}),
-        });
+      if (status === "CLOSED") {
+        updateExpr += ', resolvedAt = :now';
+      }
 
-      // Update municipality stats if resolved (CLOSED)
+      await client.send(new UpdateCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: id },
+        UpdateExpression: updateExpr,
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: exprValues,
+      }));
+
+      // Update municipality stats if resolved
       if (status === "CLOSED" && issue.municipalityId) {
-        const muniRef = db
-          .collection(COLLECTIONS.MUNICIPALITIES)
-          .doc(issue.municipalityId);
-        const muniDoc = await muniRef.get();
-        if (muniDoc.exists) {
-          const muniData = muniDoc.data();
-          await muniRef.update({
-            resolvedIssues: (muniData?.resolvedIssues || 0) + 1,
-            updatedAt: now,
-          });
+        const muniResult = await client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: issue.municipalityId },
+        }));
+        if (muniResult.Item) {
+          await client.send(new UpdateCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId: issue.municipalityId },
+            UpdateExpression: 'SET resolvedIssues = :resolved, updatedAt = :now',
+            ExpressionAttributeValues: {
+              ':resolved': (muniResult.Item.resolvedIssues || 0) + 1,
+              ':now': now,
+            },
+          }));
         }
       }
 
@@ -660,10 +686,7 @@ router.patch(
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error(
-        "Error updating issue status:",
-        error?.message || String(error)
-      );
+      console.error("Error updating issue status:", error?.message || String(error));
       res.status(500).json({
         success: false,
         data: null,
@@ -674,15 +697,14 @@ router.patch(
   }
 );
 
-// Recalculate all municipality scores (admin utility endpoint)
+// Recalculate all municipality scores
 router.post("/recalculate-scores", async (_req: Request, res: Response) => {
   try {
-    const db = getAdminDb();
+    const client = getDocClient();
 
-    // Get all municipalities
-    const municipalitiesSnapshot = await db
-      .collection(COLLECTIONS.MUNICIPALITIES)
-      .get();
+    const muniResult = await client.send(new ScanCommand({
+      TableName: TABLES.MUNICIPALITIES,
+    }));
 
     const results: {
       municipalityId: string;
@@ -691,60 +713,54 @@ router.post("/recalculate-scores", async (_req: Request, res: Response) => {
       newScore: number;
     }[] = [];
 
-    for (const doc of municipalitiesSnapshot.docs) {
-      const muniData = doc.data();
-      const oldScore = muniData.score || 0;
+    for (const muni of muniResult.Items || []) {
+      const oldScore = muni.score || 0;
 
       try {
-        // Also recalculate totalIssues and resolvedIssues from actual issues
-        const allIssuesSnapshot = await db
-          .collection(COLLECTIONS.ISSUES)
-          .where("municipalityId", "==", doc.id)
-          .get();
+        // Recalculate totalIssues and resolvedIssues from actual issues
+        const allIssuesResult = await client.send(new QueryCommand({
+          TableName: TABLES.ISSUES,
+          IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+          KeyConditionExpression: 'municipalityId = :mid',
+          ExpressionAttributeValues: { ':mid': muni.municipalityId },
+        }));
 
-        const closedIssuesSnapshot = await db
-          .collection(COLLECTIONS.ISSUES)
-          .where("municipalityId", "==", doc.id)
-          .where("status", "==", "CLOSED")
-          .count()
-          .get();
+        const totalIssues = allIssuesResult.Items?.length || 0;
+        const resolvedIssues = (allIssuesResult.Items || []).filter(
+          (i: any) => i.status === 'CLOSED'
+        ).length;
 
-        const totalIssues = allIssuesSnapshot.size;
-        const resolvedIssues = closedIssuesSnapshot.data().count;
+        await client.send(new UpdateCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: muni.municipalityId },
+          UpdateExpression: 'SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now',
+          ExpressionAttributeValues: {
+            ':total': totalIssues,
+            ':resolved': resolvedIssues,
+            ':now': new Date().toISOString(),
+          },
+        }));
 
-        // Update municipality with correct counts
-        await db.collection(COLLECTIONS.MUNICIPALITIES).doc(doc.id).update({
-          totalIssues,
-          resolvedIssues,
-          updatedAt: new Date(),
-        });
-
-        const newScore = await recalculateMunicipalityScore(doc.id);
+        const newScore = await recalculateMunicipalityScore(muni.municipalityId);
         results.push({
-          municipalityId: doc.id,
-          name: muniData.name,
+          municipalityId: muni.municipalityId,
+          name: muni.name,
           oldScore,
           newScore,
         });
       } catch (err) {
-        console.error(`Failed to recalculate score for ${doc.id}:`, err);
+        console.error(`Failed to recalculate score for ${muni.municipalityId}:`, err);
       }
     }
 
     res.json({
       success: true,
-      data: {
-        updated: results.length,
-        results,
-      },
+      data: { updated: results.length, results },
       error: null,
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error(
-      "Error recalculating scores:",
-      error?.message || String(error)
-    );
+    console.error("Error recalculating scores:", error?.message || String(error));
     res.status(500).json({
       success: false,
       data: null,
@@ -761,14 +777,15 @@ router.delete(
   requireRole("PLATFORM_MAINTAINER"),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const db = getAdminDb();
+      const client = getDocClient();
       const { issueId } = req.params;
 
-      // Get the issue first
-      const issueRef = db.collection(COLLECTIONS.ISSUES).doc(issueId);
-      const issueDoc = await issueRef.get();
+      const issueResult = await client.send(new GetCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId },
+      }));
 
-      if (!issueDoc.exists) {
+      if (!issueResult.Item) {
         return res.status(404).json({
           success: false,
           data: null,
@@ -777,34 +794,40 @@ router.delete(
         });
       }
 
-      const issueData = issueDoc.data();
-      const municipalityId = issueData?.municipalityId;
+      const issueData = issueResult.Item;
+      const municipalityId = issueData.municipalityId;
 
-      // Delete the issue
-      await issueRef.delete();
+      await client.send(new DeleteCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId },
+      }));
 
-      // Update municipality stats if applicable
+      // Update municipality stats
       if (municipalityId) {
-        const municipalityRef = db
-          .collection(COLLECTIONS.MUNICIPALITIES)
-          .doc(municipalityId);
-        const municipalityDoc = await municipalityRef.get();
+        const muniResult = await client.send(new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId },
+        }));
 
-        if (municipalityDoc.exists) {
-          const muniData = municipalityDoc.data();
-          const totalIssues = Math.max(0, (muniData?.totalIssues || 1) - 1);
+        if (muniResult.Item) {
+          const muniData = muniResult.Item;
+          const totalIssues = Math.max(0, (muniData.totalIssues || 1) - 1);
           const resolvedIssues =
-            issueData?.status === "CLOSED"
-              ? Math.max(0, (muniData?.resolvedIssues || 1) - 1)
-              : muniData?.resolvedIssues || 0;
+            issueData.status === "CLOSED"
+              ? Math.max(0, (muniData.resolvedIssues || 1) - 1)
+              : muniData.resolvedIssues || 0;
 
-          await municipalityRef.update({
-            totalIssues,
-            resolvedIssues,
-            updatedAt: new Date(),
-          });
+          await client.send(new UpdateCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId },
+            UpdateExpression: 'SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now',
+            ExpressionAttributeValues: {
+              ':total': totalIssues,
+              ':resolved': resolvedIssues,
+              ':now': new Date().toISOString(),
+            },
+          }));
 
-          // Recalculate score
           await recalculateMunicipalityScore(municipalityId);
         }
       }
