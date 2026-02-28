@@ -1,0 +1,208 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "DynamoDB tables for CivicLemma platform",
+  "Parameters": {
+    "TablePrefix": {
+      "Type": "String",
+      "Default": "civiclemma_",
+      "Description": "Prefix for all DynamoDB table names"
+    }
+  },
+  "Resources": {
+    "IssuesTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}issues" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "issueId", "AttributeType": "S" },
+          { "AttributeName": "municipalityId", "AttributeType": "S" },
+          { "AttributeName": "status", "AttributeType": "S" },
+          { "AttributeName": "type", "AttributeType": "S" },
+          { "AttributeName": "createdAt", "AttributeType": "S" },
+          { "AttributeName": "latitude", "AttributeType": "N" },
+          { "AttributeName": "_pk", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "issueId", "KeyType": "HASH" }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "gsi-municipalityId-createdAt",
+            "KeySchema": [
+              { "AttributeName": "municipalityId", "KeyType": "HASH" },
+              { "AttributeName": "createdAt", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          },
+          {
+            "IndexName": "gsi-status-createdAt",
+            "KeySchema": [
+              { "AttributeName": "status", "KeyType": "HASH" },
+              { "AttributeName": "createdAt", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          },
+          {
+            "IndexName": "gsi-type-createdAt",
+            "KeySchema": [
+              { "AttributeName": "type", "KeyType": "HASH" },
+              { "AttributeName": "createdAt", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          },
+          {
+            "IndexName": "gsi-createdAt",
+            "KeySchema": [
+              { "AttributeName": "_pk", "KeyType": "HASH" },
+              { "AttributeName": "createdAt", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          },
+          {
+            "IndexName": "gsi-latitude",
+            "KeySchema": [
+              { "AttributeName": "_pk", "KeyType": "HASH" },
+              { "AttributeName": "latitude", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          }
+        ]
+      }
+    },
+    "MunicipalitiesTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}municipalities" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "municipalityId", "AttributeType": "S" },
+          { "AttributeName": "score", "AttributeType": "N" },
+          { "AttributeName": "name", "AttributeType": "S" },
+          { "AttributeName": "_pk", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "municipalityId", "KeyType": "HASH" }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "gsi-score",
+            "KeySchema": [
+              { "AttributeName": "_pk", "KeyType": "HASH" },
+              { "AttributeName": "score", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          },
+          {
+            "IndexName": "gsi-name",
+            "KeySchema": [
+              { "AttributeName": "_pk", "KeyType": "HASH" },
+              { "AttributeName": "name", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          }
+        ]
+      }
+    },
+    "UsersTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}users" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "uid", "AttributeType": "S" },
+          { "AttributeName": "role", "AttributeType": "S" },
+          { "AttributeName": "createdAt", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "uid", "KeyType": "HASH" }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "gsi-role-createdAt",
+            "KeySchema": [
+              { "AttributeName": "role", "KeyType": "HASH" },
+              { "AttributeName": "createdAt", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          }
+        ]
+      }
+    },
+    "ScoreHistoryTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}score_history" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "municipalityId", "AttributeType": "S" },
+          { "AttributeName": "timestamp", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "municipalityId", "KeyType": "HASH" },
+          { "AttributeName": "timestamp", "KeyType": "RANGE" }
+        ]
+      }
+    },
+    "VerificationsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}verifications" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "verificationId", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "verificationId", "KeyType": "HASH" }
+        ]
+      }
+    },
+    "MunicipalityRegistrationsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}municipality_registrations" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "registrationId", "AttributeType": "S" },
+          { "AttributeName": "status", "AttributeType": "S" },
+          { "AttributeName": "createdAt", "AttributeType": "S" },
+          { "AttributeName": "userId", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "registrationId", "KeyType": "HASH" }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "gsi-status-createdAt",
+            "KeySchema": [
+              { "AttributeName": "status", "KeyType": "HASH" },
+              { "AttributeName": "createdAt", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          },
+          {
+            "IndexName": "gsi-userId-status",
+            "KeySchema": [
+              { "AttributeName": "userId", "KeyType": "HASH" },
+              { "AttributeName": "status", "KeyType": "RANGE" }
+            ],
+            "Projection": { "ProjectionType": "ALL" }
+          }
+        ]
+      }
+    },
+    "LocationStatsTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": { "Fn::Sub": "${TablePrefix}location_stats" },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          { "AttributeName": "locationKey", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "locationKey", "KeyType": "HASH" }
+        ]
+      }
+    }
+  }
+}
