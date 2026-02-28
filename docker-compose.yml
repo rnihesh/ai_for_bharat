@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://server:3001
+      - NEXT_PUBLIC_COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+      - NEXT_PUBLIC_COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
+      - NEXT_PUBLIC_COGNITO_REGION=${AWS_REGION:-ap-south-1}
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - DYNAMODB_TABLE_PREFIX=${DYNAMODB_TABLE_PREFIX:-civiclemma_}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-civiclemma-uploads}
+      - CLOUDFRONT_DOMAIN=${CLOUDFRONT_DOMAIN}
+      - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+      - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}
+      - BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - ML_SERVICE_URL=http://ml:8000
+      - CORS_ORIGIN=http://localhost:3000
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      - ml
+
+  ml:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}
+      - POLLY_VOICE_ID=${POLLY_VOICE_ID:-Kajal}
+      - POLLY_ENGINE=${POLLY_ENGINE:-neural}
+      - TRANSCRIBE_S3_BUCKET=${TRANSCRIBE_S3_BUCKET:-civiclemma-transcribe}
+      - DYNAMODB_TABLE_PREFIX=${DYNAMODB_TABLE_PREFIX:-civiclemma_}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - MAIN_SERVER_URL=http://server:3001
+      - ML_SERVICE_URL=http://ml:8000
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
