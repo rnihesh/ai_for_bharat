@@ -35,7 +35,6 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { municipalitiesApi } from "@/lib/api";
-import { auth } from "@/lib/firebase";
 
 const indianStates = [
   "Andhra Pradesh",
@@ -72,7 +71,7 @@ const indianStates = [
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signUp, user, loading: authLoading, profileLoading, userProfile } = useAuth();
+  const { signUp, user, loading: authLoading, profileLoading, userProfile, getToken } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
@@ -225,7 +224,7 @@ function RegisterForm() {
 
     try {
       // Get the current user's auth token
-      const token = await auth.currentUser?.getIdToken();
+      const token = await getToken();
       if (!token) {
         toast.error("Session expired. Please sign in again.");
         router.push("/auth/login");

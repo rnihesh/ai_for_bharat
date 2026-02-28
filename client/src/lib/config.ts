@@ -20,14 +20,12 @@ export const config = {
     },
   },
 
-  // Firebase Configuration
-  firebase: {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
+  // AWS Cognito Configuration
+  cognito: {
+    userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || "",
+    clientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || "",
+    region: process.env.NEXT_PUBLIC_AWS_REGION || "ap-south-1",
+    domain: process.env.NEXT_PUBLIC_COGNITO_DOMAIN || "",
   },
 
   // App Configuration
@@ -48,12 +46,12 @@ export function validateConfig() {
     errors.push("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is required");
   }
 
-  if (!config.firebase.apiKey) {
-    errors.push("NEXT_PUBLIC_FIREBASE_API_KEY is required");
+  if (!config.cognito.userPoolId) {
+    errors.push("NEXT_PUBLIC_COGNITO_USER_POOL_ID is required");
   }
 
-  if (!config.firebase.projectId) {
-    errors.push("NEXT_PUBLIC_FIREBASE_PROJECT_ID is required");
+  if (!config.cognito.clientId) {
+    errors.push("NEXT_PUBLIC_COGNITO_CLIENT_ID is required");
   }
 
   if (errors.length > 0) {

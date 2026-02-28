@@ -1,22 +1,20 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { User } from 'firebase/auth';
 import { 
-  auth,
+  CognitoAppUser,
   signInWithEmail,
   registerWithEmail,
-  signInWithGoogle,
-  signOut as firebaseSignOut,
+  signOut as cognitoSignOut,
   resetPassword,
   getUserProfile,
   onAuthChange,
   getIdToken,
   UserProfile
-} from '@/lib/firebase';
+} from '@/lib/cognito';
 
 interface AuthContextType {
-  user: User | null;
+  user: CognitoAppUser | null;
   userProfile: UserProfile | null;
   loading: boolean;
   profileLoading: boolean;
@@ -33,22 +31,21 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<CognitoAppUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Subscribe to auth state changes
+  // Check auth state on mount
   useEffect(() => {
-    const unsubscribe = onAuthChange(async (firebaseUser) => {
-      setUser(firebaseUser);
+    const unsubscribe = onAuthChange(async (cognitoUser) => {
+      setUser(cognitoUser);
       
-      if (firebaseUser) {
-        // Fetch user profile from Firestore
+      if (cognitoUser) {
         setProfileLoading(true);
         try {
-          const profile = await getUserProfile(firebaseUser.uid);
+          const profile = await getUserProfile(cognitoUser.uid);
           setUserProfile(profile);
         } catch (err) {
           console.error('Error fetching user profile:', err);
@@ -73,10 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setError(null);
       setProfileLoading(true);
-      const userCredential = await signInWithEmail(email, password);
-      // Fetch profile immediately after sign-in (don't wait for onAuthStateChanged)
-      const profile = await getUserProfile(userCredential.user.uid);
-      setUser(userCredential.user);
+      const { user: cognitoUser } = await signInWithEmail(email, password);
+      const profile = await getUserProfile(cognitoUser.uid);
+      setUser(cognitoUser);
       setUserProfile(profile);
       setProfileLoading(false);
       return profile;
@@ -92,11 +88,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setError(null);
       setProfileLoading(true);
-      const userCredential = await registerWithEmail(email, password, displayName);
-      // Fetch profile immediately after sign-up
-      const profile = await getUserProfile(userCredential.user.uid);
-      setUser(userCredential.user);
-      setUserProfile(profile);
+      const { user: cognitoUser } = await registerWithEmail(email, password, displayName);
+      setUser(cognitoUser);
+
+      // Auto sign-in after registration if user is confirmed
+      try {
+        const { user: signedInUser } = await signInWithEmail(email, password);
+        const profile = await getUserProfile(signedInUser.uid);
+        setUser(signedInUser);
+        setUserProfile(profile);
+      } catch {
+        // User may need to confirm email first
+        console.log('User may need email confirmation before sign-in');
+      }
+
       setProfileLoading(false);
     } catch (err: unknown) {
       setProfileLoading(false);
@@ -107,18 +112,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInGoogle = useCallback(async (): Promise<UserProfile | null> => {
+    // Cognito Hosted UI OAuth flow
+    // For Google sign-in, redirect to Cognito Hosted UI
     try {
       setError(null);
-      setProfileLoading(true);
-      const userCredential = await signInWithGoogle();
-      // Fetch profile immediately after Google sign-in
-      const profile = await getUserProfile(userCredential.user.uid);
-      setUser(userCredential.user);
-      setUserProfile(profile);
-      setProfileLoading(false);
-      return profile;
+      const { cognito } = await import('@/lib/config').then(m => m.config);
+      const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
+      const hostedUiUrl = `https://${cognito.domain}.auth.${cognito.region}.amazoncognito.com/oauth2/authorize?client_id=${cognito.clientId}&response_type=code&scope=openid+email+profile&redirect_uri=${redirectUri}&identity_provider=Google`;
+      window.location.href = hostedUiUrl;
+      return null;
     } catch (err: unknown) {
-      setProfileLoading(false);
       const message = getErrorMessage(err);
       setError(message);
       throw new Error(message);
@@ -128,7 +131,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     try {
       setError(null);
-      await firebaseSignOut();
+      await cognitoSignOut();
+      setUser(null);
       setUserProfile(null);
     } catch (err: unknown) {
       const message = getErrorMessage(err);
@@ -182,46 +186,44 @@ export function useAuth() {
   return context;
 }
 
-// Helper function to get user-friendly error messages
+// Helper function to get user-friendly error messages from Cognito errors
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     const message = error.message;
+    const name = (error as { code?: string }).code || error.name || '';
     
-    // Firebase auth error codes
-    if (message.includes('auth/email-already-in-use')) {
+    // Cognito error codes
+    if (name === 'UsernameExistsException' || message.includes('already exists')) {
       return 'This email is already registered. Please sign in instead.';
     }
-    if (message.includes('auth/invalid-email')) {
+    if (name === 'InvalidParameterException' || message.includes('Invalid email')) {
       return 'Invalid email address.';
     }
-    if (message.includes('auth/operation-not-allowed')) {
-      return 'This sign-in method is not enabled.';
+    if (name === 'InvalidPasswordException' || message.includes('password')) {
+      return 'Password does not meet requirements. Must be at least 8 characters with uppercase, lowercase, number, and symbol.';
     }
-    if (message.includes('auth/weak-password')) {
-      return 'Password should be at least 6 characters.';
+    if (name === 'UserNotConfirmedException') {
+      return 'Please verify your email before signing in.';
     }
-    if (message.includes('auth/user-disabled')) {
-      return 'This account has been disabled.';
-    }
-    if (message.includes('auth/user-not-found')) {
+    if (name === 'UserNotFoundException' || message.includes('User does not exist')) {
       return 'No account found with this email.';
     }
-    if (message.includes('auth/wrong-password')) {
-      return 'Incorrect password.';
-    }
-    if (message.includes('auth/invalid-credential')) {
+    if (name === 'NotAuthorizedException' || message.includes('Incorrect username or password')) {
       return 'Invalid credentials. Please check your email and password.';
     }
-    if (message.includes('auth/too-many-requests')) {
+    if (name === 'TooManyRequestsException' || message.includes('too many')) {
       return 'Too many failed attempts. Please try again later.';
     }
-    if (message.includes('auth/popup-closed-by-user')) {
-      return 'Sign-in popup was closed. Please try again.';
+    if (name === 'LimitExceededException') {
+      return 'Attempt limit exceeded. Please try again later.';
     }
-    if (message.includes('auth/popup-blocked')) {
-      return 'Pop-up blocked by browser. Please allow pop-ups for this site.';
+    if (name === 'CodeMismatchException') {
+      return 'Invalid verification code.';
     }
-    if (message.includes('auth/network-request-failed')) {
+    if (name === 'ExpiredCodeException') {
+      return 'Verification code has expired. Please request a new one.';
+    }
+    if (message.includes('Network') || message.includes('fetch')) {
       return 'Network error. Please check your connection.';
     }
     

@@ -253,7 +253,7 @@ export default function MapPage() {
         });
 
         if (result.success && result.data?.items) {
-          // Map raw items to Issue type, including stored priority from Firebase
+          // Map raw items to Issue type, including stored priority from DynamoDB
           const fetchedIssues = (result.data.items as any[]).map((item) => {
             const issue: Issue = {
               id: item.id,
@@ -266,7 +266,7 @@ export default function MapPage() {
               imageUrls: item.imageUrls,
             };
 
-            // Map stored priority fields from Firebase (flat structure) to nested structure
+            // Map stored priority fields from DynamoDB (flat structure) to nested structure
             if (item.priority_score !== undefined && item.priority_severity) {
               issue.priority = {
                 score: item.priority_score,
