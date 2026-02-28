@@ -1,10 +1,11 @@
 /**
  * Location Service - Uses Google Maps API for geocoding and municipality assignment
- * AI classification uses AWS Bedrock (configured in commit 10)
+ * AI classification uses AWS Bedrock
  */
 
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { getDocClient, TABLES } from "../shared/aws";
+import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { getDocClient, TABLES, getBedrockClient, AWS_CONFIG } from "../shared/aws";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
@@ -375,10 +376,88 @@ export async function classifyIssueWithAI(description: string, imageUrl?: string
   type: string;
   confidence: number;
 } | null> {
-  // Will be implemented in commit 10 with AWS Bedrock
-  // For now, return null to use default type
-  console.log('AI classification pending Bedrock integration');
-  return null;
+  try {
+    const bedrock = getBedrockClient();
+    const validTypes = [
+      'POTHOLE', 'GARBAGE', 'ILLEGAL_PARKING', 'DAMAGED_SIGN',
+      'FALLEN_TREE', 'VANDALISM', 'DEAD_ANIMAL', 'DAMAGED_CONCRETE',
+      'DAMAGED_ELECTRICAL'
+    ];
+
+    const prompt = `You are classifying a municipal/civic issue report. Based on the description, determine the most likely issue type.
+
+Valid types: ${validTypes.join(', ')}
+
+Description: "${description}"
+
+Respond with ONLY a JSON object in this exact format (no markdown, no explanation):
+{"type": "ISSUE_TYPE", "confidence": 0.85}
+
+Where type is one of the valid types and confidence is 0.0-1.0.`;
+
+    const content: Array<{ text: string } | { image: { format: string; source: { bytes: Uint8Array } } }> = [
+      { text: prompt }
+    ];
+
+    // If image URL provided, download and include it
+    if (imageUrl) {
+      try {
+        const imgResponse = await fetch(imageUrl);
+        if (imgResponse.ok) {
+          const imgBuffer = await imgResponse.arrayBuffer();
+          const imgBytes = new Uint8Array(imgBuffer);
+          const contentType = imgResponse.headers.get('content-type') || 'image/jpeg';
+          const format = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpeg';
+
+          content.unshift({
+            image: {
+              format,
+              source: { bytes: imgBytes }
+            }
+          });
+        }
+      } catch (imgErr) {
+        console.warn('Failed to download image for classification, using text only:', imgErr);
+      }
+    }
+
+    const command = new ConverseCommand({
+      modelId: AWS_CONFIG.bedrockModelId,
+      messages: [
+        {
+          role: 'user',
+          content: content as any,
+        }
+      ],
+      inferenceConfig: {
+        maxTokens: 100,
+        temperature: 0.1,
+      }
+    });
+
+    const response = await bedrock.send(command);
+    const responseText = response.output?.message?.content?.[0]?.text || '';
+
+    // Parse JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn('Could not parse AI classification response:', responseText);
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (validTypes.includes(parsed.type) && typeof parsed.confidence === 'number') {
+      return {
+        type: parsed.type,
+        confidence: Math.min(1, Math.max(0, parsed.confidence))
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('AI classification error:', err);
+    return null;
+  }
 }
 
 export default {
