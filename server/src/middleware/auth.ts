@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import { getAdminAuth, getAdminDb, COLLECTIONS } from "../shared/firebase";
+import { CognitoJwtVerifier } from "aws-jwt-verify";
+import { GetCommand } from "@aws-sdk/lib-dynamodb";
+import { getDocClient, TABLES, AWS_CONFIG } from "../shared/aws";
 import type { UserRole } from "../shared/types";
 
 export interface AuthenticatedRequest extends Request {
@@ -9,6 +11,21 @@ export interface AuthenticatedRequest extends Request {
     role: UserRole;
     municipalityId: string | null;
   };
+}
+
+// Cognito JWT verifier (singleton)
+let jwtVerifier: ReturnType<typeof CognitoJwtVerifier.create> | null = null;
+
+function getJwtVerifier() {
+  if (!jwtVerifier) {
+    jwtVerifier = CognitoJwtVerifier.create({
+      userPoolId: AWS_CONFIG.cognitoUserPoolId,
+      tokenUse: "access",
+      clientId: AWS_CONFIG.cognitoClientId,
+    });
+    console.log("✅ Cognito JWT verifier initialized");
+  }
+  return jwtVerifier;
 }
 
 export async function authMiddleware(
@@ -29,26 +46,33 @@ export async function authMiddleware(
     }
 
     const token = authHeader.split("Bearer ")[1];
-    const auth = getAdminAuth();
-    const decodedToken = await auth.verifyIdToken(token);
 
-    // Get user profile from Firestore to get the actual role
-    const db = getAdminDb();
-    const userDoc = await db
-      .collection(COLLECTIONS.USERS)
-      .doc(decodedToken.uid)
-      .get();
-    const userData = userDoc.exists ? userDoc.data() : null;
+    // Verify JWT with Cognito
+    const verifier = getJwtVerifier();
+    const payload = await verifier.verify(token);
 
-    // Map role names (Firestore uses lowercase, types may use uppercase)
-    const firestoreRole = userData?.role || "user";
+    const uid = payload.sub;
+    const email = (payload as Record<string, unknown>).email as string || "";
+
+    // Get user profile from DynamoDB
+    const result = await getDocClient().send(
+      new GetCommand({
+        TableName: TABLES.USERS,
+        Key: { uid },
+      })
+    );
+
+    const userData = result.Item || null;
+
+    // Map role from stored data
+    const storedRole = userData?.role || "USER";
     let mappedRole: UserRole = "USER";
 
-    if (firestoreRole === "admin" || firestoreRole === "PLATFORM_MAINTAINER") {
+    if (storedRole === "admin" || storedRole === "PLATFORM_MAINTAINER") {
       mappedRole = "PLATFORM_MAINTAINER";
     } else if (
-      firestoreRole === "municipality" ||
-      firestoreRole === "MUNICIPALITY_USER"
+      storedRole === "municipality" ||
+      storedRole === "MUNICIPALITY_USER"
     ) {
       mappedRole = "MUNICIPALITY_USER";
     } else {
@@ -56,10 +80,10 @@ export async function authMiddleware(
     }
 
     req.user = {
-      uid: decodedToken.uid,
-      email: decodedToken.email || "",
+      uid,
+      email: (userData?.email as string) || email,
       role: mappedRole,
-      municipalityId: userData?.municipalityId || null,
+      municipalityId: (userData?.municipalityId as string) || null,
     };
 
     next();
