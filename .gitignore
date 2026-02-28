@@ -31,11 +31,8 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
-# Firebase
-.firebase/
-firebase-debug.log
-firestore-debug.log
-ui-debug.log
+# AWS
+.aws/
 *.log
 
 # OS
@@ -46,10 +43,8 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
-# Firebase Service Account Keys (NEVER commit these!)
-serviceAccountKey.json
-*-firebase-adminsdk-*.json
-server/serviceAccountKey.json
+# AWS credentials (NEVER commit these!)
+aws-credentials.json
 
 # Python
 __pycache__/

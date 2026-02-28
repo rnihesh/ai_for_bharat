@@ -1,244 +1,261 @@
 # CivicLemma Deployment Guide
 
-This guide explains how to deploy CivicLemma to production:
-- **Frontend (Client)**: Vercel
-- **Backend (Server)**: Render
-- **ML Service**: Render
+This guide explains how to deploy CivicLemma to production using AWS services.
+
+## Architecture
+
+- **Frontend (Client)**: Vercel or Docker
+- **Backend (Server)**: AWS ECS/EC2 or Docker
+- **ML Service**: AWS ECS/EC2 or Docker
+- **Agent Service**: AWS ECS/EC2 or Docker
 
 ## Prerequisites
 
-1. **Firebase Project** with:
-   - Authentication enabled (Email/Password + Google)
-   - Firestore Database
-   - Service Account Key (JSON file)
+1. **AWS Account** with access to:
+   - DynamoDB
+   - S3
+   - CloudFront
+   - Cognito
+   - Bedrock (Claude model access enabled)
+   - Transcribe
+   - Polly
 
-2. **Cloudinary Account** for image uploads
-
-3. **Google Cloud Console** with:
+2. **Google Cloud Console** with:
    - Maps JavaScript API enabled
-   - Gemini API key (for ML service)
+   - Geocoding API enabled
 
-4. **Accounts on**:
-   - [Vercel](https://vercel.com)
-   - [Render](https://render.com)
+3. **AWS CLI** configured with credentials (`aws configure`)
 
----
-
-## Step 1: Deploy ML Service to Render
-
-### 1.1 Create Web Service
-1. Go to [Render Dashboard](https://dashboard.render.com)
-2. Click **New** → **Web Service**
-3. Connect your GitHub repository
-4. Configure:
-   - **Name**: `civiclemma-ml`
-   - **Root Directory**: `ml`
-   - **Runtime**: Python 3
-   - **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt`
-   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-
-### 1.2 Set Environment Variables
-In Render dashboard, add:
-```
-GEMINI_API_KEY=your-gemini-api-key
-```
-
-### 1.3 Note the URL
-After deployment, note the URL (e.g., `https://civiclemma-ml.onrender.com`)
+4. **Docker** installed (for containerized deployment)
 
 ---
 
-## Step 2: Deploy Backend to Render
+## Step 1: Deploy AWS Infrastructure
 
-### 2.1 Create Web Service
-1. In Render Dashboard, click **New** → **Web Service**
-2. Connect your GitHub repository
-3. Configure:
-   - **Name**: `civiclemma-api`
-   - **Root Directory**: `server`
-   - **Runtime**: Node
-   - **Build Command**: `npm install && npm run build`
-   - **Start Command**: `npm start`
-
-### 2.2 Set Environment Variables
-In Render dashboard, add these environment variables:
+### 1.1 Deploy CloudFormation Stack
 
 ```bash
-# Server
-NODE_ENV=production
-PORT=10000
-
-# Firebase - IMPORTANT: Paste your entire serviceAccountKey.json as a single line
-FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"your-project",...}
-FIREBASE_PROJECT_ID=your-firebase-project-id
-FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
-
-# CORS - Set to your Vercel frontend URL (add this after Vercel deployment)
-CORS_ORIGIN=https://your-app.vercel.app
-
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=your-cloud-name
-CLOUDINARY_API_KEY=your-api-key
-CLOUDINARY_API_SECRET=your-api-secret
-
-# Google Maps
-GOOGLE_MAPS_API_KEY=your-google-maps-api-key
-
-# ML Service URL
-ML_SERVICE_URL=https://civiclemma-ml.onrender.com
+cd infra
+chmod +x deploy.sh
+./deploy.sh dev
 ```
 
-### 2.3 Getting FIREBASE_SERVICE_ACCOUNT_KEY
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Select your project
-3. Go to **Project Settings** → **Service Accounts**
-4. Click **Generate new private key**
-5. Open the downloaded JSON file
-6. **Copy the entire contents** and paste as the value for `FIREBASE_SERVICE_ACCOUNT_KEY`
+This creates:
+- S3 bucket for image uploads
+- S3 bucket for Transcribe audio
+- CloudFront distribution for image CDN
+- Cognito User Pool and Client
 
-### 2.4 Note the URL
-After deployment, note the URL (e.g., `https://civiclemma-api.onrender.com`)
+### 1.2 Enable Bedrock Model Access
+
+1. Go to [AWS Bedrock Console](https://console.aws.amazon.com/bedrock)
+2. Navigate to **Model access** → **Manage model access**
+3. Enable access for `Anthropic Claude 3 Haiku` (or your preferred model)
+4. Wait for access status to show **Access granted**
+
+### 1.3 Note the Outputs
+
+After CloudFormation deployment, note these values from the stack outputs:
+- `UploadsBucketName` — S3 bucket name for uploads
+- `CloudFrontDomain` — CDN domain for images
+- `UserPoolId` — Cognito User Pool ID
+- `UserPoolClientId` — Cognito App Client ID
 
 ---
 
-## Step 3: Deploy Frontend to Vercel
+## Step 2: Deploy with Docker Compose
+
+### 2.1 Create Root `.env` File
+
+Create a `.env` file in the project root:
+
+```bash
+# AWS Credentials
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=ap-south-1
+
+# DynamoDB
+DYNAMODB_TABLE_PREFIX=civiclemma_
+
+# S3 + CloudFront
+S3_BUCKET_NAME=civiclemma-uploads-dev
+CLOUDFRONT_DOMAIN=d1234567890.cloudfront.net
+
+# Cognito
+COGNITO_USER_POOL_ID=ap-south-1_xxxxxxxxx
+COGNITO_CLIENT_ID=your_cognito_client_id
+
+# Bedrock
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_REGION=us-east-1
+
+# Google Maps
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+
+# ML Service
+ML_SERVICE_URL=http://ml:8000
+
+# CORS
+CORS_ORIGIN=http://localhost:3000
+
+# Agent
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+POLLY_VOICE_ID=Kajal
+POLLY_ENGINE=neural
+TRANSCRIBE_S3_BUCKET=civiclemma-transcribe-dev
+```
+
+### 2.2 Build and Run
+
+```bash
+docker-compose up --build
+```
+
+### Service URLs (Local)
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:3001 |
+| ML Service | http://localhost:8000 |
+| Agent Service | http://localhost:8001 |
+
+---
+
+## Step 3: Deploy Frontend to Vercel (Optional)
+
+If you prefer Vercel for the frontend instead of Docker:
 
 ### 3.1 Import Project
 1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
 2. Click **Add New** → **Project**
 3. Import your GitHub repository
-4. Configure:
-   - **Framework Preset**: Next.js
-   - **Root Directory**: `client`
+4. Set **Root Directory** to `client`
+5. Framework Preset: **Next.js**
 
 ### 3.2 Set Environment Variables
+
 In Vercel project settings → Environment Variables, add:
 
 ```bash
-# API URLs (from Render deployments)
-NEXT_PUBLIC_API_URL=https://civiclemma-api.onrender.com/api
-NEXT_PUBLIC_ML_API_URL=https://civiclemma-ml.onrender.com
+# API URLs
+NEXT_PUBLIC_API_URL=https://your-api-domain.com/api
+NEXT_PUBLIC_ML_API_URL=https://your-ml-domain.com
 
-# Firebase (Client-side - these are public keys)
-NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789012
-NEXT_PUBLIC_FIREBASE_APP_ID=1:123456789012:web:abcdef123456
+# Cognito
+NEXT_PUBLIC_COGNITO_USER_POOL_ID=ap-south-1_xxxxxxxxx
+NEXT_PUBLIC_COGNITO_CLIENT_ID=your_cognito_client_id
+NEXT_PUBLIC_COGNITO_REGION=ap-south-1
 
 # Google Maps
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 
 # App
 NEXT_PUBLIC_APP_NAME=CivicLemma
 NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 ```
 
-### 3.3 Getting Firebase Client Config
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Select your project
-3. Go to **Project Settings** → **General**
-4. Scroll to **Your apps** → Select your web app
-5. Copy the `firebaseConfig` values
+### 3.3 Update CORS
 
-### 3.4 Deploy
-Click **Deploy** and wait for the build to complete.
-
----
-
-## Step 4: Update CORS (Post-Deployment)
-
-After Vercel deployment:
-
-1. Go back to **Render** → your `civiclemma-api` service
-2. Update the `CORS_ORIGIN` environment variable with your Vercel URL:
-   ```
-   CORS_ORIGIN=https://your-app.vercel.app
-   ```
-3. The service will automatically redeploy
+After Vercel deployment, update `CORS_ORIGIN` on the backend to match:
+```
+CORS_ORIGIN=https://your-app.vercel.app
+```
 
 ---
 
 ## Verification Checklist
 
 ### ML Service
-- [ ] Visit `https://civiclemma-ml.onrender.com/health` - should return `{"status":"ok","model_loaded":true}`
-- [ ] Visit `https://civiclemma-ml.onrender.com/docs` - should show API documentation
+- [ ] `GET /health` returns `{"status":"ok","model_loaded":true}`
+- [ ] `GET /docs` shows FastAPI documentation
 
-### Backend Service  
-- [ ] Visit `https://civiclemma-api.onrender.com/api/health` - should return health status
-- [ ] Check Render logs for "Firebase initialized" message
+### Backend Service
+- [ ] `GET /api/health` returns health status
+- [ ] DynamoDB tables are accessible and populated
 
 ### Frontend
-- [ ] Visit your Vercel URL
-- [ ] Try logging in with Google
-- [ ] Try creating a test issue
+- [ ] Login with email/password works via Cognito
+- [ ] Creating a test issue works
+- [ ] Image upload to S3 works and displays via CloudFront
+
+### Agent Service
+- [ ] Telegram bot responds to `/start`
+- [ ] Voice messages are transcribed via Transcribe
+- [ ] TTS responses play via Polly
 
 ---
 
 ## Troubleshooting
 
-### "Firebase credentials not found"
-- Ensure `FIREBASE_SERVICE_ACCOUNT_KEY` is set correctly
-- Make sure the JSON is valid and complete (single line, no extra quotes)
+### "Access Denied" errors
+- Verify AWS credentials have appropriate IAM policies
+- Ensure the IAM user/role has DynamoDB, S3, Cognito, Bedrock, Transcribe, and Polly access
+
+### "Bedrock model not available"
+- Visit the Bedrock console and verify model access is enabled
+- Check that `BEDROCK_REGION` is set to a region where the model is available (e.g., `us-east-1`)
 
 ### "CORS error"
-- Update `CORS_ORIGIN` in Render to match your Vercel URL exactly
-- Make sure to include `https://` prefix
+- Update `CORS_ORIGIN` to match your frontend URL exactly
+- Include the `https://` prefix
 
 ### "ML service not responding"
-- Check if the ML service is healthy at `/health` endpoint
-- Verify `GEMINI_API_KEY` is set correctly
+- Check the `/health` endpoint
+- Verify `BEDROCK_MODEL_ID` is set and model access is granted in the Bedrock console
 
-### Build fails on Render
-- Check the build logs for specific errors
-- Ensure all dependencies are in `package.json` / `requirements.txt`
+### DynamoDB errors
+- Verify tables exist with the correct prefix (`civiclemma_`)
+- Check IAM permissions include `dynamodb:GetItem`, `PutItem`, `Query`, `Scan`, `UpdateItem`, `DeleteItem`
 
-### Build fails on Vercel
-- Check that all `NEXT_PUBLIC_*` environment variables are set
-- Review build logs for any missing dependencies
+### Image upload fails
+- Verify S3 bucket exists and CORS is configured
+- Check `S3_BUCKET_NAME` and `CLOUDFRONT_DOMAIN` env vars are set correctly
 
 ---
 
 ## Environment Variables Summary
 
-### Vercel (Client)
+### Client
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NEXT_PUBLIC_API_URL` | Yes | Backend API URL |
 | `NEXT_PUBLIC_ML_API_URL` | Yes | ML Service URL |
-| `NEXT_PUBLIC_FIREBASE_*` | Yes | Firebase client config |
+| `NEXT_PUBLIC_COGNITO_USER_POOL_ID` | Yes | Cognito User Pool ID |
+| `NEXT_PUBLIC_COGNITO_CLIENT_ID` | Yes | Cognito App Client ID |
+| `NEXT_PUBLIC_COGNITO_REGION` | Yes | AWS region for Cognito |
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Yes | Google Maps API key |
 | `NEXT_PUBLIC_APP_NAME` | No | App display name |
 | `NEXT_PUBLIC_APP_URL` | No | App URL |
 
-### Render (Server)
+### Server
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | Yes | Firebase service account JSON |
-| `FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
-| `FIREBASE_STORAGE_BUCKET` | Yes | Firebase storage bucket |
-| `CORS_ORIGIN` | Yes | Frontend URL for CORS |
-| `CLOUDINARY_*` | Yes | Cloudinary credentials |
+| `AWS_REGION` | Yes | AWS region |
+| `DYNAMODB_TABLE_PREFIX` | Yes | DynamoDB table prefix |
+| `S3_BUCKET_NAME` | Yes | S3 uploads bucket |
+| `CLOUDFRONT_DOMAIN` | Yes | CloudFront CDN domain |
+| `COGNITO_USER_POOL_ID` | Yes | Cognito User Pool ID |
+| `COGNITO_CLIENT_ID` | Yes | Cognito Client ID |
+| `BEDROCK_MODEL_ID` | Yes | Bedrock model identifier |
+| `BEDROCK_REGION` | No | Bedrock region (defaults to AWS_REGION) |
 | `GOOGLE_MAPS_API_KEY` | Yes | Google Maps API key |
 | `ML_SERVICE_URL` | Yes | ML service URL |
+| `CORS_ORIGIN` | Yes | Frontend URL for CORS |
 
-### Render (ML)
+### ML Service
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GEMINI_API_KEY` | Yes | Google Gemini API key |
+| `AWS_REGION` | Yes | AWS region for Bedrock |
+| `BEDROCK_MODEL_ID` | Yes | Bedrock model identifier |
 
----
-
-## Optional: Using render.yaml for Blueprint Deployment
-
-You can also deploy using Render Blueprints:
-
-1. In Render Dashboard, click **New** → **Blueprint**
-2. Connect your repository
-3. Render will detect `server/render.yaml` and `ml/render.yaml`
-4. Set the environment variables marked as `sync: false`
-5. Deploy
-
-This method deploys both services at once.
+### Agent Service
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWS_REGION` | Yes | AWS region |
+| `BEDROCK_MODEL_ID` | Yes | Bedrock model identifier |
+| `DYNAMODB_TABLE_PREFIX` | Yes | DynamoDB table prefix |
+| `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token |
+| `POLLY_VOICE_ID` | No | Polly voice (default: Kajal) |
+| `POLLY_ENGINE` | No | Polly engine (default: neural) |
+| `TRANSCRIBE_S3_BUCKET` | Yes | S3 bucket for audio files |

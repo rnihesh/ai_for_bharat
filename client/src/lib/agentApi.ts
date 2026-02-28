@@ -14,11 +14,11 @@ export interface AgentHealthResponse {
   status: string;
   timestamp: string;
   services: {
-    azure_openai: boolean;
-    murf_tts: boolean;
-    whisper_stt: boolean;
+    bedrock: boolean;
+    polly_tts: boolean;
+    transcribe_stt: boolean;
     weather: boolean;
-    firebase: boolean;
+    dynamodb: boolean;
   };
 }
 

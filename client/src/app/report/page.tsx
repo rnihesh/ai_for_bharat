@@ -160,7 +160,7 @@ export default function ReportIssuePage() {
             }));
             toast.success(`Issue detected: ${issueTypes.find(t => t.value === result.issueType)?.label}`);
             
-            // Auto-generate description using Gemini AI
+            // Auto-generate description using Bedrock AI
             setIsGeneratingDescription(true);
             try {
               const descResult = await generateDescription(urls[0], result.issueType);
@@ -228,7 +228,7 @@ export default function ReportIssuePage() {
               }));
               toast.success(`Issue type auto-detected: ${issueTypes.find(t => t.value === result.issueType)?.label || result.className}`);
               
-              // Auto-generate description using Gemini AI
+              // Auto-generate description using Bedrock AI
               setIsGeneratingDescription(true);
               try {
                 const descResult = await generateDescription(urls[0], result.issueType);

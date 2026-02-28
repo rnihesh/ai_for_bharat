@@ -207,7 +207,7 @@ export default function TermsPage() {
                 </h3>
                 <p>
                   The Platform integrates with third-party services (e.g.,
-                  Google Maps, Firebase). We are not responsible for
+                  Google Maps, AWS). We are not responsible for
                   third-party service availability or policies.
                 </p>
               </div>

@@ -23,13 +23,13 @@ CivicLemma is a civic engagement platform designed to bridge the gap between cit
 
 - Report civic issues by uploading photos with automatic location detection
 - AI-powered image classification using a trained MobileNetV2 model to identify issue types
-- AI-generated issue descriptions using Google Gemini
+- AI-generated issue descriptions using AWS Bedrock
 - Interactive map view to browse all reported issues in your area
 - Municipality dashboard for officials to manage and respond to issues
 - Admin dashboard for platform-wide oversight and municipality management
 - Public leaderboard ranking municipalities by performance score
 - Real-time status tracking (Open, In Progress, Closed)
-- Firebase Authentication with email/password and Google Sign-In
+- Amazon Cognito authentication with email/password and Google Sign-In
 - Responsive design for mobile and desktop
 
 ---
@@ -48,22 +48,25 @@ CivicLemma is a civic engagement platform designed to bridge the gap between cit
 
 - Node.js with Express.js
 - TypeScript
-- Firebase Admin SDK
+- AWS SDK v3
 - Zod for validation
-- Cloudinary for image storage
+- S3 + CloudFront for image storage
 
 ### Machine Learning Service
 
 - Python with FastAPI
 - TensorFlow/Keras (MobileNetV2)
-- Google Gemini API for description generation
+- AWS Bedrock for description generation
 - PIL for image processing
 
 ### Infrastructure
 
-- Firebase Firestore (Database)
-- Firebase Authentication
-- Cloudinary (Image Storage)
+- Amazon DynamoDB (Database)
+- Amazon Cognito (Authentication)
+- Amazon S3 + CloudFront (Image Storage & CDN)
+- AWS Bedrock (AI/LLM)
+- Amazon Transcribe (Speech-to-Text)
+- Amazon Polly (Text-to-Speech)
 - Google Maps API
 
 ---
@@ -96,7 +99,7 @@ civiclemma/
 |   |   |   |-- auth.ts    # Authentication endpoints
 |   |   |   |-- issues.ts  # Issue CRUD operations
 |   |   |   |-- municipalities.ts
-|   |   |   |-- upload.ts  # Cloudinary upload handling
+|   |   |   |-- upload.ts  # S3 presigned URL upload handling
 |   |   |-- middleware/    # Auth, error handling
 |   |   |-- services/      # Business logic (location, classification)
 |   |   |-- shared/        # Types, utilities, validation schemas
@@ -120,10 +123,8 @@ civiclemma/
 
 - Node.js version 18.0.0 or higher
 - Python version 3.9 or higher
-- A Firebase project with Firestore and Authentication enabled
+- AWS account with DynamoDB, S3, Cognito, and Bedrock access
 - Google Maps API key with Maps JavaScript API and Geocoding API enabled
-- Cloudinary account for image uploads
-- Google Gemini API key for AI description generation
 
 ### Installation
 
@@ -146,12 +147,11 @@ npm run install:all
 npm run install:ml
 ```
 
-4. Download your Firebase service account key:
+4. Set up AWS infrastructure:
 
-   - Go to Firebase Console
-   - Navigate to Project Settings then Service Accounts
-   - Click Generate New Private Key
-   - Save the file as `server/serviceAccountKey.json`
+   - Deploy the CloudFormation stack from `infra/cloudformation.json`
+   - Deploy DynamoDB tables from `dynamodb-tables.json`
+   - Configure AWS credentials locally (`aws configure`)
 
 5. Create environment files (see Environment Variables section below)
 
@@ -162,12 +162,9 @@ npm run install:ml
 ### Client (client/.env)
 
 ```env
-NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+NEXT_PUBLIC_COGNITO_USER_POOL_ID=your_cognito_user_pool_id
+NEXT_PUBLIC_COGNITO_CLIENT_ID=your_cognito_client_id
+NEXT_PUBLIC_COGNITO_REGION=ap-south-1
 NEXT_PUBLIC_API_URL=http://localhost:3001/api
 NEXT_PUBLIC_ML_API_URL=http://localhost:8000
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
@@ -180,18 +177,24 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```env
 PORT=3001
 NODE_ENV=development
-FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccountKey.json
+AWS_REGION=ap-south-1
+DYNAMODB_TABLE_PREFIX=civiclemma_
+S3_BUCKET_NAME=civiclemma-uploads
+CLOUDFRONT_DOMAIN=your-distribution.cloudfront.net
+COGNITO_USER_POOL_ID=your_cognito_user_pool_id
+COGNITO_CLIENT_ID=your_cognito_client_id
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_REGION=us-east-1
 CORS_ORIGIN=http://localhost:3000
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key
-CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
-CLOUDINARY_API_KEY=your_cloudinary_api_key
-CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+ML_SERVICE_URL=http://localhost:8000
 ```
 
 ### ML Service (ml/.env)
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
 ```
 
 ---
@@ -238,24 +241,25 @@ npm run dev:ml
 5. Update `NEXT_PUBLIC_API_URL` to your deployed backend URL
 6. Update `NEXT_PUBLIC_ML_API_URL` to your deployed ML service URL
 
-### Backend to Render
+### Backend to AWS (Docker)
 
-1. Create a new Web Service on Render
-2. Set Root Directory to `server`
-3. Build Command: `npm install && npm run build`
-4. Start Command: `npm start`
-5. Add environment variables:
-   - Set `FIREBASE_SERVICE_ACCOUNT_KEY` to the entire JSON content of your service account key
-   - Set `CORS_ORIGIN` to your Vercel frontend URL
+1. Build the Docker image: `docker build -t civiclemma-server ./server`
+2. Push to ECR or deploy on ECS/EC2
+3. Set AWS environment variables (region, DynamoDB prefix, S3 bucket, Cognito, Bedrock)
+4. Set `CORS_ORIGIN` to your frontend URL
 
-### ML Service to Render
+### ML Service to AWS (Docker)
 
-1. Create a new Web Service on Render
-2. Set Root Directory to `ml`
-3. Select Python 3 environment
-4. Build Command: `pip install -r requirements.txt`
-5. Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-6. Add environment variable `GEMINI_API_KEY`
+1. Build the Docker image: `docker build -t civiclemma-ml ./ml`
+2. Push to ECR or deploy on ECS/EC2
+3. Set `AWS_REGION` and `BEDROCK_MODEL_ID` environment variables
+
+### Full Stack with Docker Compose
+
+```bash
+# Set environment variables in .env file
+docker-compose up --build
+```
 
 ---
 
@@ -278,7 +282,7 @@ npm run dev:ml
 | ------ | ------------------------- | --------------------------------- |
 | POST   | /api/issues/:id/respond   | Municipality responds to an issue |
 | POST   | /api/issues/:id/close     | Close a resolved issue            |
-| POST   | /api/upload/signature     | Get Cloudinary upload signature   |
+| POST   | /api/upload/presigned  | Get S3 presigned upload URL     |
 | GET    | /api/admin/stats          | Platform statistics               |
 | GET    | /api/admin/municipalities | Manage municipalities             |
 

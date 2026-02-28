@@ -27,7 +27,7 @@ interface UseTextToSpeechReturn {
 
 /**
  * Hook for text-to-speech functionality
- * Supports both server-side TTS (Murf AI) and browser Web Speech API
+ * Supports both server-side TTS (Amazon Polly) and browser Web Speech API
  */
 export function useTextToSpeech(
   options: UseTextToSpeechOptions = {}

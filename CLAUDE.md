@@ -46,15 +46,15 @@ cd client && npm run lint         # ESLint for client
 
 ### Four-Service Architecture
 - **client/** - Next.js 16 frontend (React 18, TailwindCSS 4, Radix UI)
-- **server/** - Express.js backend (TypeScript, Firebase Admin SDK, Zod validation)
-- **ml/** - FastAPI Python service (TensorFlow MobileNetV2, Google Gemini API)
-- **agent/** - FastAPI Python service (Azure OpenAI GPT-4o, voice/chat agents, Telegram bot)
+- **server/** - Express.js backend (TypeScript, AWS SDK, Zod validation)
+- **ml/** - FastAPI Python service (TensorFlow MobileNetV2, AWS Bedrock)
+- **agent/** - FastAPI Python service (AWS Bedrock, voice/chat agents, Telegram bot)
 
 ### Data Flow
 ```
-Image Upload → Cloudinary → ML Classification → Firestore Storage
-                                    ↓
-                         Gemini for AI Description
+Image Upload → S3 + CloudFront → ML Classification → DynamoDB Storage
+                                         ↓
+                              Bedrock for AI Description
 ```
 
 ### Key Directories
@@ -66,7 +66,7 @@ Image Upload → Cloudinary → ML Classification → Firestore Storage
 - `server/src/routes/` - Express API route handlers
 - `server/src/shared/types.ts` - Shared TypeScript types (IssueType, UserRole, etc.)
 - `server/src/shared/validation.ts` - Zod validation schemas
-- `server/src/middleware/auth.ts` - Firebase token verification
+- `server/src/middleware/auth.ts` - Cognito JWT verification
 - `ml/models/` - Trained Keras model and class mappings
 - `agent/agents/` - Chat, voice, and priority scoring agents
 - `agent/telegram_bot/` - Telegram bot integration
@@ -91,9 +91,16 @@ Issue types must stay synchronized across:
 2. `server/src/shared/validation.ts` (Zod schemas)
 3. `ml/main.py` (ML_CLASS_TO_ISSUE_TYPE mapping)
 
-## Firebase Setup
+## AWS Setup
 
-Requires `server/serviceAccountKey.json` (download from Firebase Console > Project Settings > Service Accounts). This file is gitignored.
+Requires AWS credentials configured via environment variables or IAM roles. Key services used:
+- **DynamoDB** - Database (7 tables with `civiclemma_` prefix)
+- **S3** - Image storage with presigned URL uploads
+- **CloudFront** - CDN for image delivery
+- **Cognito** - User authentication (JWT verification)
+- **Bedrock** - AI model inference (configurable via BEDROCK_MODEL_ID)
+- **Transcribe** - Speech-to-text for voice agents
+- **Polly** - Text-to-speech for voice responses
 
 ## Test Credentials
 

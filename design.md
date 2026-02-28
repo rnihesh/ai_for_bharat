@@ -21,15 +21,15 @@ CivicLemma follows a microservices architecture with four independent services:
                  ┌────────────┼────────────┐
                  ▼            ▼            ▼
          ┌──────────┐  ┌──────────┐  ┌──────────┐
-         │    ML    │  │  Agent   │  │ Firebase │
-         │ Service  │  │ Service  │  │Firestore │
+         │    ML    │  │  Agent   │  │  Amazon  │
+         │ Service  │  │ Service  │  │ DynamoDB │
          │(FastAPI) │  │(FastAPI) │  │          │
          └──────────┘  └──────────┘  └──────────┘
                 │            │
                 ▼            ▼
          ┌──────────┐  ┌──────────┐
-         │  Gemini  │  │  Azure   │
-         │   API    │  │  OpenAI  │
+         │   AWS    │  │   AWS    │
+         │ Bedrock  │  │ Bedrock  │
          └──────────┘  └──────────┘
 ```
 
@@ -52,7 +52,7 @@ CivicLemma follows a microservices architecture with four independent services:
 #### ML Service (Port 8000)
 - Image classification using MobileNetV2
 - Issue type prediction
-- AI description generation via Gemini
+- AI description generation via Bedrock
 - Model serving and inference
 
 #### Agent Service (Port 8001)
@@ -63,12 +63,12 @@ CivicLemma follows a microservices architecture with four independent services:
 
 ## 2. Data Architecture
 
-### 2.1 Database Schema (Firestore)
+### 2.1 Database Schema (DynamoDB)
 
 #### Users Collection (Administrative Only)
 ```typescript
 {
-  uid: string,              // Firebase Auth UID (for admin users only)
+  uid: string,              // Cognito User ID (for admin users only)
   email: string,
   displayName: string,
   role: 'MUNICIPALITY_USER' | 'PLATFORM_MAINTAINER',
@@ -90,7 +90,7 @@ Note: No citizen user accounts exist. This collection is only for administrative
   status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED',
   title: string,
   description: string,      // AI-generated or user-provided
-  imageUrl: string,         // Cloudinary URL
+  imageUrl: string,         // S3/CloudFront URL
   additionalImages?: string[], // Supporting photos from community
   location: {
     latitude: number,
@@ -216,11 +216,11 @@ Citizen Flow (Fully Anonymous):
 6. No authentication ever required for citizens
 
 Municipality/Admin Flow (Authentication Required):
-1. Admin submits credentials → Firebase Auth
-2. Firebase returns ID token
+1. Admin submits credentials → Cognito
+2. Cognito returns ID token
 3. Client stores token in AuthContext
 4. All admin API requests include: Authorization: Bearer <token>
-5. Server middleware verifies token with Firebase Admin SDK
+5. Server middleware verifies token with aws-jwt-verify
 6. Role-based access control enforced
 ```
 
@@ -360,7 +360,7 @@ server/
 │   │   ├── issues.ts          # Issue management routes
 │   │   └── users.ts           # User management routes
 │   ├── middleware/
-│   │   ├── auth.ts            # Firebase token verification
+│   │   ├── auth.ts            # Cognito token verification
 │   │   ├── errorHandler.ts   # Global error handling
 │   │   └── validation.ts     # Request validation
 │   ├── services/
@@ -418,10 +418,10 @@ Post-processing → Issue Type Mapping → Confidence Score
 ### 6.3 AI Description Generation
 
 ```python
-# Gemini API integration
+# Bedrock API integration
 def generate_description(image_url: str, issue_type: str) -> str:
     prompt = f"Describe this {issue_type} issue for a civic report"
-    response = gemini_client.generate(
+    response = bedrock_client.converse(
         prompt=prompt,
         image=image_url,
         max_tokens=150
@@ -442,13 +442,13 @@ def generate_description(image_url: str, issue_type: str) -> str:
 ```python
 class ChatAgent:
     def __init__(self):
-        self.client = AzureOpenAI(...)
+        self.client = BedrockRuntime(...)
         self.context_window = []
     
     def process_query(self, user_message: str) -> str:
         # Add system context about CivicLemma
-        # Query Firestore for relevant issue data
-        # Generate response using GPT-4o
+        # Query DynamoDB for relevant issue data
+        # Generate response using Bedrock
         # Return formatted response
 ```
 
@@ -488,9 +488,9 @@ def calculate_priority(issue: Issue) -> int:
 ### 8.1 Authentication & Authorization
 
 - **Citizen Access**: Fully public - no authentication whatsoever
-- **Administrative Authentication**: Firebase ID tokens (JWT) for municipality/admin users only
+- **Administrative Authentication**: Cognito ID tokens (JWT) for municipality/admin users only
 - **Authorization**: Role-based access control (RBAC) for administrative operations only
-- **Token Expiry**: 1 hour (Firebase default)
+- **Token Expiry**: 1 hour (Cognito default)
 - **Refresh Strategy**: Client-side token refresh for admin users
 - **Session Management**: Browser-based anonymous session IDs for spam prevention only
 - **Rate Limiting**: IP-based rate limiting for anonymous submissions
@@ -501,7 +501,7 @@ def calculate_priority(issue: Issue) -> int:
 - Strict rate limiting on public endpoints
 - CAPTCHA/reCAPTCHA for issue submissions
 - Input sanitization and validation
-- SQL injection prevention (Firestore NoSQL)
+- SQL injection prevention (DynamoDB NoSQL)
 - XSS protection via React's built-in escaping
 - CSRF protection for administrative operations
 - Content moderation for user-uploaded images
@@ -510,9 +510,9 @@ def calculate_priority(issue: Issue) -> int:
 
 ### 8.3 Data Security & Privacy
 
-- Service account keys in environment variables
-- Firestore security rules for data access
-- Image URLs signed with Cloudinary
+- AWS credentials in environment variables
+- DynamoDB IAM policies for data access
+- Image URLs served via CloudFront
 - HTTPS enforcement in production
 - Contact information hashing (phone/email)
 - IP address anonymization (hashed for spam prevention only)
@@ -531,7 +531,7 @@ def calculate_priority(issue: Issue) -> int:
 - Next.js automatic code splitting
 - Image optimization with next/image
 - Lazy loading for non-critical components
-- CDN delivery via Vercel/Cloudinary
+- CDN delivery via Vercel/CloudFront
 - Client-side caching with React Query
 
 ### 9.2 Backend Optimization
@@ -556,7 +556,7 @@ def calculate_priority(issue: Issue) -> int:
 - **Client Errors (4xx)**: Validation failures, unauthorized access
 - **Server Errors (5xx)**: Database failures, external API errors
 - **ML Errors**: Classification failures, low confidence predictions
-- **Integration Errors**: Firebase, Cloudinary, Gemini API failures
+- **Integration Errors**: DynamoDB, S3, Bedrock API failures
 
 ### 10.2 Logging Strategy
 
@@ -595,34 +595,35 @@ npm run dev
 ### 11.2 Production Deployment
 
 - **Client**: Vercel / Netlify (static hosting)
-- **Server**: Railway / Render / AWS EC2
-- **ML Service**: Docker container on cloud VM
-- **Agent Service**: Docker container on cloud VM
-- **Database**: Firebase Firestore (managed)
-- **Storage**: Cloudinary (managed CDN)
+- **Server**: AWS ECS / Docker on EC2
+- **ML Service**: Docker container on AWS
+- **Agent Service**: Docker container on AWS
+- **Database**: Amazon DynamoDB (managed)
+- **Storage**: Amazon S3 + CloudFront (managed CDN)
 
 ### 11.3 Environment Configuration
 
 ```
 # Client
 NEXT_PUBLIC_API_URL
-NEXT_PUBLIC_FIREBASE_CONFIG
+NEXT_PUBLIC_COGNITO_CONFIG
 
 # Server
 PORT
-FIREBASE_SERVICE_ACCOUNT
+AWS_REGION
+DYNAMODB_TABLE_PREFIX
 ML_SERVICE_URL
 AGENT_SERVICE_URL
 
 # ML Service
 PORT
-GEMINI_API_KEY
+BEDROCK_MODEL_ID
 MODEL_PATH
 
 # Agent Service
 PORT
-AZURE_OPENAI_KEY
-AZURE_OPENAI_ENDPOINT
+BEDROCK_MODEL_ID
+BEDROCK_REGION
 TELEGRAM_BOT_TOKEN
 ```
 
@@ -638,7 +639,7 @@ TELEGRAM_BOT_TOKEN
 ### 12.2 Integration Testing
 
 - End-to-end API flow testing
-- Firebase integration testing
+- DynamoDB integration testing
 - ML service integration testing
 - Agent service integration testing
 

@@ -145,7 +145,7 @@ export default function PrivacyPage() {
               </p>
               <ul className="list-disc list-inside ml-4 space-y-1">
                 <li>Encrypted data transmission (HTTPS/SSL)</li>
-                <li>Secure authentication with Firebase</li>
+                <li>Secure authentication with Amazon Cognito</li>
                 <li>Regular security audits and updates</li>
                 <li>Access controls and role-based permissions</li>
               </ul>

@@ -117,7 +117,7 @@ export const GSI = {
   USERS_BY_ROLE: 'gsi-role-createdAt',
 } as const;
 
-// --- Helper types (replacing Firestore timestamps) ---
+// --- Helper types for DynamoDB timestamps ---
 export interface DynamoTimestamp {
   iso: string;
   epoch: number;

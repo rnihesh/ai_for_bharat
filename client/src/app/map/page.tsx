@@ -281,7 +281,7 @@ export default function MapPage() {
           setIssues(fetchedIssues);
 
           // Only score issues that don't have stored priority (fallback for old issues)
-          // This runs once per issue, and the score is saved to Firebase
+          // This runs once per issue, and the score is saved to DynamoDB
           const openIssuesWithoutPriority = fetchedIssues.filter(
             (issue) => issue.status === "OPEN" && !issue.priority
           );
@@ -293,7 +293,7 @@ export default function MapPage() {
               try {
                 const priorityPromises = openIssuesWithoutPriority.slice(0, 5).map(async (issue) => {
                   try {
-                    // This API call now SAVES the priority to Firebase
+                    // This API call now SAVES the priority to DynamoDB
                     const score = await agentApi.priority.score({
                       issue_id: issue.id,
                       image_url: issue.imageUrls?.[0],

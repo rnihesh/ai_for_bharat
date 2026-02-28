@@ -134,8 +134,8 @@ export default function AboutPage() {
                   robust API services
                 </li>
                 <li>
-                  <strong>Database:</strong> Firebase Firestore for real-time
-                  data synchronization
+                  <strong>Database:</strong> Amazon DynamoDB for scalable
+                  data storage
                 </li>
                 <li>
                   <strong>AI/ML:</strong> TensorFlow/Keras for image

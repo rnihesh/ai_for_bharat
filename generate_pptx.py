@@ -227,13 +227,13 @@ def add_architecture_slide(prs):
             RgbColor(0xF3, 0x9C, 0x12),
         ),
         (
-            "Firebase\nFirestore & Auth",
+            "Amazon\nDynamoDB & Cognito",
             Inches(4.8),
             Inches(5.2),
             RgbColor(0xFF, 0xCA, 0x28),
         ),
         (
-            "Cloudinary\nImage Storage",
+            "Amazon S3\nImage Storage",
             Inches(0.5),
             Inches(5.2),
             RgbColor(0x00, 0xBC, 0xD4),
@@ -309,10 +309,10 @@ def add_data_flow_slide(prs):
     # Flow steps
     steps = [
         ("1. User uploads\nphoto", SECONDARY_COLOR),
-        ("2. Image stored\nin Cloudinary", RgbColor(0x00, 0xBC, 0xD4)),
+        ("2. Image stored\nin S3", RgbColor(0x00, 0xBC, 0xD4)),
         ("3. ML classifies\nissue type", RgbColor(0xE7, 0x4C, 0x3C)),
-        ("4. Gemini generates\ndescription", RgbColor(0x9B, 0x59, 0xB6)),
-        ("5. Issue stored\nin Firestore", RgbColor(0xFF, 0xCA, 0x28)),
+        ("4. Bedrock generates\ndescription", RgbColor(0x9B, 0x59, 0xB6)),
+        ("5. Issue stored\nin DynamoDB", RgbColor(0xFF, 0xCA, 0x28)),
         ("6. Routed to\nMunicipality", PRIMARY_COLOR),
     ]
 
@@ -363,7 +363,7 @@ def add_data_flow_slide(prs):
         "• Location auto-detected via browser geolocation API",
         "• MobileNetV2 model trained on 9 civic issue categories",
         "• Priority scoring based on issue type, location density, and age",
-        "• Real-time updates via Firebase listeners",
+        "• Real-time updates via DynamoDB streams",
     ]
 
     for i, note in enumerate(notes):
@@ -416,7 +416,7 @@ def add_tech_stack_slide(prs):
             [
                 "Express.js",
                 "TypeScript",
-                "Firebase Admin",
+                "AWS SDK",
                 "Zod Validation",
                 "JWT Auth",
             ],
@@ -426,14 +426,14 @@ def add_tech_stack_slide(prs):
         ),
         (
             "ML Service",
-            ["FastAPI", "TensorFlow", "MobileNetV2", "Google Gemini", "PIL"],
+            ["FastAPI", "TensorFlow", "MobileNetV2", "AWS Bedrock", "PIL"],
             RgbColor(0xE7, 0x4C, 0x3C),
             Inches(8.8),
             Inches(1.5),
         ),
         (
             "AI Agent",
-            ["Azure OpenAI", "GPT-4o", "Whisper STT", "Murf TTS", "LangChain"],
+            ["AWS Bedrock", "Claude", "Transcribe STT", "Polly TTS", "LangChain"],
             RgbColor(0xF3, 0x9C, 0x12),
             Inches(0.4),
             Inches(4.5),
@@ -441,9 +441,9 @@ def add_tech_stack_slide(prs):
         (
             "Infrastructure",
             [
-                "Firebase Auth",
-                "Firestore DB",
-                "Cloudinary",
+                "Cognito Auth",
+                "DynamoDB",
+                "S3 + CloudFront",
                 "Google Maps",
                 "Telegram API",
             ],
@@ -831,12 +831,12 @@ def add_ai_features_slide(prs):
         ),
         (
             "✨ AI Description Generation",
-            "Google Gemini API generates detailed, context-aware issue descriptions",
+            "AWS Bedrock generates detailed, context-aware issue descriptions",
             RgbColor(0x9B, 0x59, 0xB6),
         ),
         (
             "🎙️ Voice Agent",
-            "Azure OpenAI GPT-4o powered conversational agent with Whisper STT & Murf TTS",
+            "AWS Bedrock powered conversational agent with Transcribe STT & Polly TTS",
             SECONDARY_COLOR,
         ),
         (
@@ -935,7 +935,7 @@ def add_api_slide(prs):
             [
                 "POST /api/issues/:id/respond  - Municipality response",
                 "POST /api/issues/:id/close    - Close resolved issue",
-                "POST /api/upload/signature    - Cloudinary signature",
+                "POST /api/upload/presign      - S3 presigned URL",
                 "GET  /api/admin/stats         - Platform statistics",
             ],
             RgbColor(0xE7, 0x4C, 0x3C),
@@ -998,13 +998,13 @@ def add_security_slide(prs):
         prs,
         "Security & Authentication",
         [
-            "Firebase Authentication with JWT token verification",
+            "Cognito Authentication with JWT token verification",
             "Role-based access control (RBAC) for all endpoints",
-            "Secure file upload via signed Cloudinary URLs",
+            "Secure file upload via S3 presigned URLs",
             "Input validation using Zod schemas on all requests",
             "CORS protection with whitelisted origins",
             "Environment-based configuration (no hardcoded secrets)",
-            "Firebase service account key for server-side operations",
+            "AWS IAM policies for server-side operations",
             "Secure session management with token refresh",
         ],
     )
@@ -1049,29 +1049,29 @@ def add_deployment_slide(prs):
             Inches(1.8),
         ),
         (
-            "🧠 ML Service\nRender",
+            "🧠 ML Service\nAWS",
             "FastAPI, TensorFlow,\nPython 3.9+",
             RgbColor(0xE7, 0x4C, 0x3C),
             Inches(8.7),
             Inches(1.8),
         ),
         (
-            "🤖 Agent Service\nRender",
-            "FastAPI, Azure OpenAI,\nTelegram Bot",
+            "🤖 Agent Service\nAWS",
+            "FastAPI, AWS Bedrock,\nTelegram Bot",
             RgbColor(0xF3, 0x9C, 0x12),
             Inches(0.5),
             Inches(4.5),
         ),
         (
-            "🔥 Firebase",
-            "Firestore DB,\nAuthentication",
+            "☁️ Amazon",
+            "DynamoDB,\nCognito Auth",
             RgbColor(0xFF, 0xCA, 0x28),
             Inches(4.6),
             Inches(4.5),
         ),
         (
-            "☁️ Cloudinary",
-            "Image Storage,\nCDN Delivery",
+            "📦 Amazon S3",
+            "Image Storage,\nCloudFront CDN",
             RgbColor(0x00, 0xBC, 0xD4),
             Inches(8.7),
             Inches(4.5),
@@ -1219,7 +1219,7 @@ def create_presentation():
         [
             "📷 Photo-based issue reporting with automatic location detection",
             "🤖 AI-powered image classification using MobileNetV2 CNN",
-            "✨ Intelligent issue descriptions via Google Gemini AI",
+            "✨ Intelligent issue descriptions via AWS Bedrock AI",
             "🗺️ Interactive map view for browsing all reported issues",
             "🏛️ Dedicated municipality dashboard for issue management",
             "🏆 Public leaderboard ranking municipalities by performance",

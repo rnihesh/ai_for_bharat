@@ -340,8 +340,8 @@ async function generateDescriptionWithAgent(
 }
 
 /**
- * Generate a description for the issue using Gemini AI
- * Falls back to Agent Service (GPT-4o vision) if ML service is unavailable
+ * Generate a description for the issue using AWS Bedrock
+ * Falls back to Agent Service (Bedrock vision) if ML service is unavailable
  */
 export async function generateDescription(
   imageUrl: string,

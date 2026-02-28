@@ -19,7 +19,7 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 - Two privileged user roles must be supported (authentication required):
   - `MUNICIPALITY_USER` - Municipal staff for issue management
   - `PLATFORM_MAINTAINER` - Administrative access to all features
-- Only administrative users require Firebase Authentication
+- Only administrative users require Cognito Authentication
 - Administrative access must be protected with secure login
 
 #### 2.1.3 Administrative Dashboards
@@ -58,9 +58,9 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 - Users must be able to bookmark or save tracking URLs for later reference
 
 #### 2.2.2 Image Processing
-- System must upload images to Cloudinary for storage
+- System must upload images to S3 for storage
 - Images must be processed by ML service for automatic classification
-- System must generate AI-powered descriptions using Google Gemini API
+- System must generate AI-powered descriptions using AWS Bedrock
 
 ### 2.3 AI Classification System
 
@@ -71,14 +71,14 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 - System must handle misclassifications gracefully
 
 #### 2.3.2 AI Description Generation
-- System must generate contextual descriptions using Google Gemini API
+- System must generate contextual descriptions using AWS Bedrock
 - Descriptions must be relevant to the classified issue type
 - Descriptions must be in user-friendly language
 
 ### 2.4 Issue Management
 
 #### 2.4.1 Issue Tracking
-- All issues must be stored in Firebase Firestore
+- All issues must be stored in Amazon DynamoDB
 - Each issue must have a unique identifier
 - Issues must track status: OPEN, IN_PROGRESS, RESOLVED, CLOSED
 - Issues must be timestamped (creation, updates, resolution)
@@ -107,7 +107,7 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 
 #### 2.5.2 Voice Agent
 - System must support voice-based interactions
-- Voice agent must use AWS Bedword OpenAI GPT-4o
+- Voice agent must use AWS Bedrock
 - Voice input must be transcribed and processed
 - Responses must be provided in both text and audio formats
 
@@ -193,7 +193,7 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 
 ### 3.2 Security
 - Public API endpoints must implement rate limiting to prevent abuse
-- Administrative endpoints must be protected with Firebase authentication
+- Administrative endpoints must be protected with Cognito authentication
 - Administrative passwords must be securely hashed
 - Service account keys must not be committed to version control
 - API requests must use HTTPS in production
@@ -209,7 +209,7 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 ### 3.3 Scalability
 - System must handle increasing number of issue reports
 - Database queries must be optimized with proper indexing
-- Image storage must scale with Cloudinary CDN
+- Image storage must scale with S3 and CloudFront CDN
 - ML service must support horizontal scaling
 
 ### 3.4 Reliability
@@ -246,14 +246,14 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 
 ### 4.2 Backend Stack
 - Express.js with TypeScript
-- Firebase Admin SDK for authentication
+- AWS SDK for DynamoDB, S3, Cognito
 - Zod for validation
 - Node.js runtime
 
 ### 4.3 ML Service Stack
 - FastAPI framework
 - TensorFlow with MobileNetV2
-- Google Gemini API integration
+- AWS Bedrock for AI descriptions
 - Python 3.9+
 
 ### 4.4 Agent Service Stack
@@ -263,17 +263,17 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 - Telegram Bot API
 
 ### 4.5 Infrastructure
-- Firebase Firestore for database
-- Firebase Authentication for user management
-- Cloudinary for image storage and CDN
+- Amazon DynamoDB for database
+- Amazon Cognito for user management
+- Amazon S3 + CloudFront for image storage and CDN
 - Environment-based configuration
 
 ## 5. Data Requirements
 
 ### 5.1 Data Storage
-- User profiles and authentication data in Firebase Auth
-- Issue reports in Firestore with proper indexing
-- Images stored in Cloudinary with references in Firestore
+- User profiles and authentication data in Cognito
+- Issue reports in DynamoDB with proper indexing
+- Images stored in S3 with CloudFront CDN delivery
 - ML model files stored locally in ml/models/
 
 ### 5.2 Data Validation
@@ -299,10 +299,10 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 ## 6. Integration Requirements
 
 ### 6.1 External Services
-- Firebase Authentication and Firestore
-- Cloudinary for image management
-- Google Gemini API for AI descriptions
-- AWS Bedrock OpenAI for agent services
+- Amazon Cognito and DynamoDB
+- Amazon S3 + CloudFront for image management
+- AWS Bedrock for AI descriptions
+- AWS Bedrock for agent services
 - Telegram Bot API
 
 ### 6.2 API Design
@@ -336,7 +336,7 @@ CivicLemma is a civic engagement platform designed for India that empowers citiz
 ### 8.1 Production Setup
 - Separate build processes for each service
 - Environment-specific configuration
-- Firebase service account setup
+- AWS credentials and IAM setup
 - API key management for external services
 
 ### 8.2 Monitoring

@@ -28,7 +28,7 @@ function getUserPool(): CognitoUserPool {
   return userPool;
 }
 
-// User type compatible with Firebase User shape for minimal downstream changes
+// User type compatible with app shape for minimal downstream changes
 export interface CognitoAppUser {
   uid: string;
   email: string | null;
@@ -175,7 +175,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
 
 /**
  * Subscribe to auth state changes
- * Cognito doesn't have real-time listeners like Firebase
+ * Cognito doesn't have real-time listeners like other auth providers
  * We check session validity on init and provide the callback
  */
 export function onAuthChange(
