@@ -9,7 +9,10 @@ out/
 
 # Environment files
 .env
+.env.*
 .env.local
+.env.deploy
+.env.example
 .env.*.local
 .env.development.local
 .env.test.local
@@ -52,11 +55,15 @@ __pycache__/
 *$py.class
 .venv/
 venv/
-.env
 *.egg-info/
 .eggs/
 
-# ML Models are tracked (needed for deployment)
-# Do NOT ignore ml/models/
+# ML Models
+*.keras
+*.h5
+*.pth
+*.pkl
+ml/models/*.keras
+ml/models/*.h5
 
 keys.txt
