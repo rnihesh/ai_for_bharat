@@ -7,7 +7,7 @@ import { ChatMessage } from "./ChatMessage";
 import { VoiceButton } from "./VoiceButton";
 import { ImageCapture } from "./ImageCapture";
 import { agentApi, ChatMessageResponse } from "@/lib/agentApi";
-import { uploadImage } from "@/lib/cloudinary";
+import { uploadImage } from "@/lib/s3-upload";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -105,13 +105,13 @@ export function ChatWindow({
   };
 
   const uploadImageToCloud = async (file: File): Promise<string | null> => {
-    // Upload to Cloudinary for a proper URL
+    // Upload to S3 for a proper URL
     try {
       const result = await uploadImage(file);
       if (result.success && result.url) {
         return result.url;
       }
-      console.error("Cloudinary upload failed:", result.error);
+      console.error("S3 upload failed:", result.error);
       return null;
     } catch (error) {
       console.error("Error uploading image:", error);
@@ -217,7 +217,7 @@ export function ChatWindow({
 
     let imageUrl: string | undefined;
 
-    // Upload pending image to Cloudinary
+    // Upload pending image to S3
     if (pendingImage) {
       setIsLoading(true);
       const url = await uploadImageToCloud(pendingImage);

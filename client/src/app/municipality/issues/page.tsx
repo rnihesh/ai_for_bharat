@@ -41,7 +41,7 @@ import {
   ExternalLink,
   AlertTriangle,
 } from "lucide-react";
-import { uploadImage } from "@/lib/cloudinary";
+import { uploadImage } from "@/lib/s3-upload";
 import { PriorityBadge } from "@/components/agent/PriorityBadge";
 
 interface Issue {

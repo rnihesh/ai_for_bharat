@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { uploadImages } from "@/lib/cloudinary";
+import { uploadImages } from "@/lib/s3-upload";
 import { classifyImage, generateDescription } from "@/lib/classifier";
 import { MapPicker } from "@/components/map";
 import { CameraCapture } from "@/components/camera";
@@ -123,7 +123,7 @@ export default function ReportIssuePage() {
         type: "image/jpeg",
       });
 
-      // Upload to Cloudinary
+      // Upload to S3
       const { urls, errors } = await uploadImages([file]);
 
       if (urls.length > 0) {

@@ -14,7 +14,7 @@ from tools.issue_tools import IssueTools
 
 from telegram_bot.session_manager import telegram_session_manager, TelegramSessionInfo
 from telegram_bot.memory import ImageAnalysis, ShortTermMemory
-from telegram_bot.cloudinary_upload import upload_telegram_photo
+from telegram_bot.s3_upload import upload_telegram_photo
 from telegram_bot.messages import get_message, detect_language, get_issue_type_label
 
 from services.azure_openai import azure_openai_service
