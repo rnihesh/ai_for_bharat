@@ -286,7 +286,7 @@ POST /predict-risk-grid
 ml/
 ├── main.py                 # FastAPI app with all endpoints
 ├── requirements.txt        # Python dependencies
-├── .env                    # Environment variables (GEMINI_API_KEY)
+├── .env                    # Environment variables (AWS_REGION, BEDROCK_MODEL_ID)
 │
 ├── models/
 │   ├── best_model.keras          # MobileNetV2 classifier
@@ -316,7 +316,8 @@ ml/
 
 Create `ml/.env`:
 ```
-GEMINI_API_KEY=your_gemini_api_key_here
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
 ML_API_PORT=8000
 ```
 

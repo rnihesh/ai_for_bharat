@@ -16,7 +16,8 @@ import requests
 from io import BytesIO
 from PIL import Image
 import os
-import google.generativeai as genai
+import boto3
+import base64
 from dotenv import load_dotenv
 import uvicorn
 
@@ -382,10 +383,8 @@ async def startup_event():
     print("=" * 60)
     load_classifier()
     
-    if os.environ.get("GEMINI_API_KEY"):
-        print("✓ Gemini API key found - description generation enabled")
-    else:
-        print("⚠ GEMINI_API_KEY not set - description generation disabled")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    print(f"✓ AWS Bedrock configured (region: {region}) - description generation enabled")
     print("=" * 60)
 
 
@@ -685,30 +684,19 @@ async def get_issue_types():
 @app.post("/generate-description", response_model=DescriptionResponse)
 async def generate_description(request: GenerateDescriptionRequest):
     """
-    Generate a description for a municipal issue image using Gemini AI.
+    Generate a description for a municipal issue image using AWS Bedrock.
     """
     try:
         if not request.imageUrl:
             raise HTTPException(status_code=400, detail="imageUrl is required")
 
-        # Get Gemini API key from environment
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise HTTPException(status_code=500, detail="Gemini API key not configured")
-
-        # Configure Gemini
-        genai.configure(api_key=gemini_api_key)
-
         # Download the image
         img = download_image(request.imageUrl)
 
-        # Convert to bytes for Gemini
+        # Convert to bytes for Bedrock
         img_buffer = BytesIO()
         img.save(img_buffer, format="JPEG")
         img_bytes = img_buffer.getvalue()
-
-        # Create Gemini model
-        gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
         # Create the prompt
         issue_type_name = {
@@ -738,12 +726,38 @@ Do NOT include:
 
 Just provide the description text, no quotes or prefixes."""
 
-        # Generate description using Gemini
-        response = gemini_model.generate_content(
-            [prompt, {"mime_type": "image/jpeg", "data": img_bytes}]
+        # Generate description using AWS Bedrock
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        model_id = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
+        bedrock_client = boto3.client("bedrock-runtime", region_name=region)
+
+        response = bedrock_client.converse(
+            modelId=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "image": {
+                                "format": "jpeg",
+                                "source": {
+                                    "bytes": img_bytes
+                                }
+                            }
+                        },
+                        {
+                            "text": prompt
+                        }
+                    ]
+                }
+            ],
+            inferenceConfig={
+                "maxTokens": 300,
+                "temperature": 0.3,
+            }
         )
 
-        description = response.text.strip()
+        description = response["output"]["message"]["content"][0]["text"].strip()
 
         return DescriptionResponse(success=True, description=description)
 
@@ -922,7 +936,7 @@ if __name__ == "__main__":
     print("Endpoints:")
     print(f"  POST /classify - Classify an image via URL")
     print(f"  POST /classify-file - Classify an uploaded image file")
-    print(f"  POST /generate-description - Generate issue description with Gemini AI")
+    print(f"  POST /generate-description - Generate issue description with AWS Bedrock")
     print(f"  POST /cluster - Cluster nearby issues (DBSCAN)")
     print(f"  POST /predict-severity - Predict issue severity (1-10)")
     print(f"  POST /predict-risk - Predict infrastructure risk")
