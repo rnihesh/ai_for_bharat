@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: civiclemma-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Firebase Admin SDK - JSON string of service account
+      - key: FIREBASE_SERVICE_ACCOUNT_KEY
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      # CORS - set to your Vercel frontend URL
+      - key: CORS_ORIGIN
+        sync: false
+      # Google APIs
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      # Cloudinary for image uploads
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # ML Service URL - set to your Render ML service URL
+      - key: ML_SERVICE_URL
+        sync: false

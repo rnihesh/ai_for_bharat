@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-01-31T05:23:38.453665",
+  "models": {
+    "severity_model": {
+      "name": "EfficientNet-B0 Severity Scorer",
+      "type": "Deep Learning (Transfer Learning)",
+      "architecture": "EfficientNet-B0 + Custom Regression Head",
+      "input": "224x224 RGB Image",
+      "output": "Severity Score (1-10)",
+      "metrics": {
+        "MAE": "1.90",
+        "MSE": "0.0617"
+      },
+      "training_samples": 800,
+      "validation_samples": 200,
+      "interpretation": "Predicts severity within \u00b11.5 points on average"
+    },
+    "risk_model": {
+      "status": "Not trained yet",
+      "command": "Run train_risk_model.ipynb"
+    },
+    "clustering": {
+      "name": "DBSCAN Geographic Clustering",
+      "type": "Unsupervised Clustering",
+      "algorithm": "DBSCAN with Haversine Distance",
+      "parameters": {
+        "eps": "50 meters (cluster radius)",
+        "min_samples": "2 (minimum issues per cluster)"
+      },
+      "input": "Issue coordinates (lat/lng)",
+      "output": "Clusters with centroid, severity, dominant type",
+      "metrics": "N/A (unsupervised)",
+      "interpretation": "Groups issues within 50m radius automatically"
+    }
+  },
+  "summary": {
+    "total_models": 3,
+    "models_trained": 2,
+    "key_capabilities": [
+      "Image-based severity scoring (1-10 scale)",
+      "Weather/location-based risk prediction",
+      "Geographic clustering of nearby issues"
+    ],
+    "technologies": [
+      "TensorFlow/Keras (EfficientNet-B0)",
+      "XGBoost (Gradient Boosting)",
+      "scikit-learn (DBSCAN, preprocessing)"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "class_indices": {
+    "Broken Road Sign Issues": 0,
+    "Damaged Electric wires and poles": 1,
+    "Damaged concrete structures": 2,
+    "Dead Animal Pollution": 3,
+    "Fallen trees": 4,
+    "Illegal Parking Issues": 5,
+    "Littering": 6,
+    "Potholes and Road Damage": 7,
+    "Vandalism Issues": 8
+  },
+  "index_to_class": {
+    "0": "Broken Road Sign Issues",
+    "1": "Damaged Electric wires and poles",
+    "2": "Damaged concrete structures",
+    "3": "Dead Animal Pollution",
+    "4": "Fallen trees",
+    "5": "Illegal Parking Issues",
+    "6": "Littering",
+    "7": "Potholes and Road Damage",
+    "8": "Vandalism Issues"
+  },
+  "num_classes": 9
+}

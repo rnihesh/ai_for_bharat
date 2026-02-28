@@ -1,0 +1,8 @@
+{
+  "val_loss": 0.05841224268078804,
+  "val_mae": 0.203940749168396,
+  "val_mae_scaled": 1.835466742515564,
+  "epochs_trained": 10,
+  "training_samples": 800,
+  "validation_samples": 200
+}

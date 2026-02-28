@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.git/
+*.md
+.gitignore
+src/
+tsconfig.json
+tsup.config.ts
