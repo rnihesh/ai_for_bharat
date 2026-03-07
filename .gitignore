@@ -67,3 +67,6 @@ ml/models/*.keras
 ml/models/*.h5
 
 keys.txt
+
+
+serviceAccountKey.json
