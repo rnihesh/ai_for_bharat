@@ -69,4 +69,5 @@ ml/models/*.h5
 keys.txt
 
 
-serviceAccountKey.json
+serviceAccountKey.jsonmigration_export/
+scripts/seed.sh
