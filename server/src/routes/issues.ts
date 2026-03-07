@@ -108,7 +108,8 @@ router.get("/", async (req: Request, res: Response) => {
       const result = await client.send(new QueryCommand({
         TableName: TABLES.ISSUES,
         IndexName: GSI.ISSUES_BY_CREATED,
-        KeyConditionExpression: '_pk = :pk',
+        KeyConditionExpression: '#pk = :pk',
+        ExpressionAttributeNames: { '#pk': '_pk' },
         ExpressionAttributeValues: { ':pk': 'ALL' },
         ScanIndexForward: false,
         Limit: 500,

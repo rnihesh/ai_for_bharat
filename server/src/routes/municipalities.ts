@@ -31,7 +31,8 @@ router.get("/leaderboard", async (req: Request, res: Response) => {
     const result = await client.send(new QueryCommand({
       TableName: TABLES.MUNICIPALITIES,
       IndexName: GSI.MUNICIPALITIES_BY_SCORE,
-      KeyConditionExpression: '_pk = :pk',
+      KeyConditionExpression: '#pk = :pk',
+      ExpressionAttributeNames: { '#pk': '_pk' },
       ExpressionAttributeValues: { ':pk': 'ALL' },
       ScanIndexForward: false,
     }));
@@ -84,7 +85,8 @@ router.get("/", async (req: Request, res: Response) => {
     const result = await client.send(new QueryCommand({
       TableName: TABLES.MUNICIPALITIES,
       IndexName: GSI.MUNICIPALITIES_BY_NAME,
-      KeyConditionExpression: '_pk = :pk',
+      KeyConditionExpression: '#pk = :pk',
+      ExpressionAttributeNames: { '#pk': '_pk' },
       ExpressionAttributeValues: { ':pk': 'ALL' },
       ScanIndexForward: true,
     }));

@@ -88,7 +88,7 @@ civiclemma/
 |   |   |   |-- report/    # Issue reporting page
 |   |   |-- components/    # Reusable React components
 |   |   |-- contexts/      # React context providers (Auth)
-|   |   |-- lib/           # Utilities, API client, Firebase config
+|   |   |-- lib/           # Utilities, API client, Cognito config
 |   |-- public/            # Static assets
 |   |-- package.json
 |

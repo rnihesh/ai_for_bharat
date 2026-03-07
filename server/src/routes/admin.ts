@@ -57,7 +57,8 @@ router.get(
       const result = await client.send(new QueryCommand({
         TableName: TABLES.MUNICIPALITIES,
         IndexName: GSI.MUNICIPALITIES_BY_NAME,
-        KeyConditionExpression: '_pk = :pk',
+        KeyConditionExpression: '#pk = :pk',
+        ExpressionAttributeNames: { '#pk': '_pk' },
         ExpressionAttributeValues: { ':pk': 'ALL' },
         ScanIndexForward: true,
       }));
