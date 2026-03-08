@@ -266,12 +266,18 @@ async def send_chat_message(request: ChatMessageRequest):
     )
 
     # Process with chat agent
-    agent = ChatAgent(session)
-    response = await agent.process_message(
-        message=request.message,
-        image_url=request.image_url,
-        location=request.location,
-    )
+    try:
+        agent = ChatAgent(session)
+        response = await agent.process_message(
+            message=request.message,
+            image_url=request.image_url,
+            location=request.location,
+        )
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Chat message processing failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Add assistant response
     session.add_message(MessageRole.ASSISTANT, response["message"])

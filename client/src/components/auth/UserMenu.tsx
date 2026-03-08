@@ -48,9 +48,11 @@ export function UserMenu() {
     }
   };
 
+  const displayName = userProfile?.displayName || user.displayName || user.email || "User";
+
   const getInitials = () => {
-    if (user.displayName) {
-      return user.displayName
+    if (displayName && displayName !== "User") {
+      return displayName
         .split(" ")
         .map((n: string) => n[0])
         .join("")
@@ -82,7 +84,7 @@ export function UserMenu() {
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">
-              {user.displayName || "User"}
+              {displayName}
             </p>
             <p className="text-xs leading-none text-muted-foreground">
               {user.email}

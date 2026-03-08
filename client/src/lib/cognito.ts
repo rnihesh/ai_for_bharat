@@ -253,7 +253,7 @@ export async function getIdToken(): Promise<string | null> {
           resolve(null);
           return;
         }
-        resolve(session.getAccessToken().getJwtToken());
+        resolve(session.getIdToken().getJwtToken());
       }
     );
   });

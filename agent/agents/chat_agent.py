@@ -356,7 +356,8 @@ Current collected data will be provided. Only ask for missing information."""
             if isinstance(loc, LocationData):
                 context_parts.append(f"Location: {loc.address or f'{loc.latitude}, {loc.longitude}'}")
             elif isinstance(loc, dict):
-                context_parts.append(f"Location: {loc.get('address') or f'{loc.get('latitude')}, {loc.get('longitude')}'}")
+                addr = loc.get('address') or f"{loc.get('latitude')}, {loc.get('longitude')}"
+                context_parts.append(f"Location: {addr}")
 
         missing = []
         # Check for description or AI-generated description

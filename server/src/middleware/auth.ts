@@ -20,7 +20,7 @@ function getJwtVerifier() {
   if (!jwtVerifier) {
     jwtVerifier = CognitoJwtVerifier.create({
       userPoolId: AWS_CONFIG.cognitoUserPoolId,
-      tokenUse: "access",
+      tokenUse: "id",
       clientId: AWS_CONFIG.cognitoClientId,
     });
     console.log("✅ Cognito JWT verifier initialized");

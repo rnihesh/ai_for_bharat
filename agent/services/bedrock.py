@@ -75,6 +75,23 @@ class BedrockService:
                     "content": content
                 })
 
+        # Bedrock converse API requires first message to be 'user' role
+        while bedrock_messages and bedrock_messages[0]["role"] != "user":
+            bedrock_messages.pop(0)
+
+        if not bedrock_messages:
+            return "I'm sorry, I couldn't process that. Could you please try again?"
+
+        # Bedrock requires alternating user/assistant roles - merge consecutive same-role messages
+        merged = []
+        for msg in bedrock_messages:
+            if merged and merged[-1]["role"] == msg["role"]:
+                # Merge text content into previous message
+                merged[-1]["content"].extend(msg["content"])
+            else:
+                merged.append(msg)
+        bedrock_messages = merged
+
         # Build request
         request = {
             "modelId": model_id,
