@@ -54,30 +54,33 @@ router.get(
       const { state, district, search } = req.query;
 
       // Use GSI sorted by name for ordered listing
-      const result = await client.send(new QueryCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        IndexName: GSI.MUNICIPALITIES_BY_NAME,
-        KeyConditionExpression: '#pk = :pk',
-        ExpressionAttributeNames: { '#pk': '_pk' },
-        ExpressionAttributeValues: { ':pk': 'ALL' },
-        ScanIndexForward: true,
-      }));
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          IndexName: GSI.MUNICIPALITIES_BY_NAME,
+          KeyConditionExpression: "#pk = :pk",
+          ExpressionAttributeNames: { "#pk": "_pk" },
+          ExpressionAttributeValues: { ":pk": "ALL" },
+          ScanIndexForward: true,
+        }),
+      );
 
       let allItems = result.Items || [];
 
       // Apply filters
-      if (state && typeof state === 'string') {
+      if (state && typeof state === "string") {
         allItems = allItems.filter((item) => item.state === state);
       }
-      if (district && typeof district === 'string') {
+      if (district && typeof district === "string") {
         allItems = allItems.filter((item) => item.district === district);
       }
-      if (search && typeof search === 'string' && search.trim()) {
+      if (search && typeof search === "string" && search.trim()) {
         const searchLower = search.toLowerCase().trim();
-        allItems = allItems.filter((item) =>
-          item.name?.toLowerCase().includes(searchLower) ||
-          item.district?.toLowerCase().includes(searchLower) ||
-          item.state?.toLowerCase().includes(searchLower)
+        allItems = allItems.filter(
+          (item) =>
+            item.name?.toLowerCase().includes(searchLower) ||
+            item.district?.toLowerCase().includes(searchLower) ||
+            item.state?.toLowerCase().includes(searchLower),
         );
       }
 
@@ -105,7 +108,7 @@ router.get(
     } catch (error) {
       console.error(
         "Error fetching municipalities:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -114,7 +117,7 @@ router.get(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Create a new municipality
@@ -129,7 +132,7 @@ router.post(
 
       const municipalityData = {
         municipalityId,
-        _pk: 'ALL',
+        _pk: "ALL",
         ...input,
         score: 100,
         totalIssues: 0,
@@ -139,10 +142,12 @@ router.post(
         updatedAt: now,
       };
 
-      await client.send(new PutCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Item: municipalityData,
-      }));
+      await client.send(
+        new PutCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Item: municipalityData,
+        }),
+      );
 
       res.status(201).json({
         success: true,
@@ -153,7 +158,7 @@ router.post(
     } catch (error: any) {
       console.error(
         "Error creating municipality:",
-        error?.message || String(error)
+        error?.message || String(error),
       );
 
       if (error.name === "ZodError") {
@@ -172,7 +177,7 @@ router.post(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Update a municipality
@@ -185,10 +190,12 @@ router.put(
       const input = updateMunicipalitySchema.parse(req.body);
 
       // Check if municipality exists
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -214,24 +221,28 @@ router.put(
         }
       });
 
-      expressionParts.push('updatedAt = :updatedAt');
-      expressionValues[':updatedAt'] = new Date().toISOString();
+      expressionParts.push("updatedAt = :updatedAt");
+      expressionValues[":updatedAt"] = new Date().toISOString();
 
-      await client.send(new UpdateCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-        UpdateExpression: `SET ${expressionParts.join(', ')}`,
-        ExpressionAttributeValues: expressionValues,
-        ...(Object.keys(expressionNames).length > 0
-          ? { ExpressionAttributeNames: expressionNames }
-          : {}),
-      }));
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+          UpdateExpression: `SET ${expressionParts.join(", ")}`,
+          ExpressionAttributeValues: expressionValues,
+          ...(Object.keys(expressionNames).length > 0
+            ? { ExpressionAttributeNames: expressionNames }
+            : {}),
+        }),
+      );
 
       // Fetch updated item
-      const updatedResult = await client.send(new GetCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-      }));
+      const updatedResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+        }),
+      );
 
       res.json({
         success: true,
@@ -242,7 +253,7 @@ router.put(
     } catch (error: any) {
       console.error(
         "Error updating municipality:",
-        error?.message || String(error)
+        error?.message || String(error),
       );
 
       if (error.name === "ZodError") {
@@ -261,7 +272,7 @@ router.put(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Auto-regenerate bounds for a municipality
@@ -272,10 +283,12 @@ router.post(
       const client = getDocClient();
       const { id } = req.params;
 
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -292,18 +305,20 @@ router.post(
       const newBounds = await getMunicipalityBounds(
         municipality.name,
         municipality.district,
-        municipality.state
+        municipality.state,
       );
 
-      await client.send(new UpdateCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-        UpdateExpression: 'SET bounds = :bounds, updatedAt = :now',
-        ExpressionAttributeValues: {
-          ':bounds': newBounds,
-          ':now': new Date().toISOString(),
-        },
-      }));
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+          UpdateExpression: "SET bounds = :bounds, updatedAt = :now",
+          ExpressionAttributeValues: {
+            ":bounds": newBounds,
+            ":now": new Date().toISOString(),
+          },
+        }),
+      );
 
       res.json({
         success: true,
@@ -312,9 +327,9 @@ router.post(
           name: municipality.name,
           bounds: newBounds,
           message: `Bounds updated: N:${newBounds.north.toFixed(
-            4
+            4,
           )} S:${newBounds.south.toFixed(4)} E:${newBounds.east.toFixed(
-            4
+            4,
           )} W:${newBounds.west.toFixed(4)}`,
         },
         error: null,
@@ -323,7 +338,7 @@ router.post(
     } catch (error) {
       console.error(
         "Error regenerating bounds:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -332,7 +347,7 @@ router.post(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Delete a municipality
@@ -343,10 +358,12 @@ router.delete(
       const client = getDocClient();
       const { id } = req.params;
 
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -358,13 +375,15 @@ router.delete(
       }
 
       // Check if there are any linked issues
-      const issuesResult = await client.send(new QueryCommand({
-        TableName: TABLES.ISSUES,
-        IndexName: GSI.ISSUES_BY_MUNICIPALITY,
-        KeyConditionExpression: 'municipalityId = :mid',
-        ExpressionAttributeValues: { ':mid': id },
-        Limit: 1,
-      }));
+      const issuesResult = await client.send(
+        new QueryCommand({
+          TableName: TABLES.ISSUES,
+          IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+          KeyConditionExpression: "municipalityId = :mid",
+          ExpressionAttributeValues: { ":mid": id },
+          Limit: 1,
+        }),
+      );
 
       if (issuesResult.Items && issuesResult.Items.length > 0) {
         return res.status(400).json({
@@ -376,10 +395,12 @@ router.delete(
         });
       }
 
-      await client.send(new DeleteCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Key: { municipalityId: id },
-      }));
+      await client.send(
+        new DeleteCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId: id },
+        }),
+      );
 
       res.json({
         success: true,
@@ -390,7 +411,7 @@ router.delete(
     } catch (error) {
       console.error(
         "Error deleting municipality:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -399,7 +420,7 @@ router.delete(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // ============================================
@@ -415,14 +436,16 @@ router.get(
       const { page, pageSize } = paginationSchema.parse(req.query);
       const { status = "PENDING" } = req.query;
 
-      const result = await client.send(new QueryCommand({
-        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
-        IndexName: GSI.REGISTRATIONS_BY_STATUS,
-        KeyConditionExpression: '#status = :status',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: { ':status': status as string },
-        ScanIndexForward: false,
-      }));
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+          IndexName: GSI.REGISTRATIONS_BY_STATUS,
+          KeyConditionExpression: "#status = :status",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":status": status as string },
+          ScanIndexForward: false,
+        }),
+      );
 
       let registrations = (result.Items || []).map((item) => ({
         id: item.registrationId,
@@ -432,7 +455,7 @@ router.get(
       const total = registrations.length;
       registrations = registrations.slice(
         (page - 1) * pageSize,
-        page * pageSize
+        page * pageSize,
       );
 
       res.json({
@@ -450,7 +473,7 @@ router.get(
     } catch (error) {
       console.error(
         "Error fetching registrations:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -459,7 +482,7 @@ router.get(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Approve a registration request
@@ -471,10 +494,12 @@ router.post(
       const { id } = req.params;
       const { bounds } = req.body;
 
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
-        Key: { registrationId: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+          Key: { registrationId: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -506,18 +531,18 @@ router.post(
         (municipalityBounds.north === 0 && municipalityBounds.south === 0)
       ) {
         console.log(
-          `Auto-generating bounds for ${registration.municipalityName}, ${registration.district}, ${registration.state}`
+          `Auto-generating bounds for ${registration.municipalityName}, ${registration.district}, ${registration.state}`,
         );
         municipalityBounds = await getMunicipalityBounds(
           registration.municipalityName,
           registration.district,
-          registration.state
+          registration.state,
         );
       }
 
       const municipalityData = {
         municipalityId,
-        _pk: 'ALL',
+        _pk: "ALL",
         name: registration.municipalityName,
         type: registration.municipalityType || "MUNICIPALITY",
         state: registration.state,
@@ -532,40 +557,48 @@ router.post(
       };
 
       // Create the municipality
-      await client.send(new PutCommand({
-        TableName: TABLES.MUNICIPALITIES,
-        Item: municipalityData,
-      }));
+      await client.send(
+        new PutCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Item: municipalityData,
+        }),
+      );
 
       // Update user role if userId is present
       if (registration.userId) {
-        await client.send(new UpdateCommand({
-          TableName: TABLES.USERS,
-          Key: { uid: registration.userId },
-          UpdateExpression: 'SET #role = :role, municipalityId = :mid, updatedAt = :now',
-          ExpressionAttributeNames: { '#role': 'role' },
-          ExpressionAttributeValues: {
-            ':role': 'municipality',
-            ':mid': municipalityId,
-            ':now': now,
-          },
-        }));
+        await client.send(
+          new UpdateCommand({
+            TableName: TABLES.USERS,
+            Key: { uid: registration.userId },
+            UpdateExpression:
+              "SET #role = :role, municipalityId = :mid, updatedAt = :now",
+            ExpressionAttributeNames: { "#role": "role" },
+            ExpressionAttributeValues: {
+              ":role": "municipality",
+              ":mid": municipalityId,
+              ":now": now,
+            },
+          }),
+        );
       }
 
       // Update registration status
-      await client.send(new UpdateCommand({
-        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
-        Key: { registrationId: id },
-        UpdateExpression: 'SET #status = :status, approvedBy = :approvedBy, approvedAt = :approvedAt, municipalityId = :mid, updatedAt = :now',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':status': 'APPROVED',
-          ':approvedBy': req.user!.uid,
-          ':approvedAt': now,
-          ':mid': municipalityId,
-          ':now': now,
-        },
-      }));
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+          Key: { registrationId: id },
+          UpdateExpression:
+            "SET #status = :status, approvedBy = :approvedBy, approvedAt = :approvedAt, municipalityId = :mid, updatedAt = :now",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: {
+            ":status": "APPROVED",
+            ":approvedBy": req.user!.uid,
+            ":approvedAt": now,
+            ":mid": municipalityId,
+            ":now": now,
+          },
+        }),
+      );
 
       res.json({
         success: true,
@@ -579,7 +612,7 @@ router.post(
     } catch (error) {
       console.error(
         "Error approving registration:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -588,7 +621,7 @@ router.post(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Reject a registration request
@@ -609,10 +642,12 @@ router.post(
         });
       }
 
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
-        Key: { registrationId: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+          Key: { registrationId: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -636,19 +671,22 @@ router.post(
 
       const now = new Date().toISOString();
 
-      await client.send(new UpdateCommand({
-        TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
-        Key: { registrationId: id },
-        UpdateExpression: 'SET #status = :status, rejectionReason = :reason, rejectedBy = :rejectedBy, rejectedAt = :rejectedAt, updatedAt = :now',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':status': 'REJECTED',
-          ':reason': reason,
-          ':rejectedBy': req.user!.uid,
-          ':rejectedAt': now,
-          ':now': now,
-        },
-      }));
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+          Key: { registrationId: id },
+          UpdateExpression:
+            "SET #status = :status, rejectionReason = :reason, rejectedBy = :rejectedBy, rejectedAt = :rejectedAt, updatedAt = :now",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: {
+            ":status": "REJECTED",
+            ":reason": reason,
+            ":rejectedBy": req.user!.uid,
+            ":rejectedAt": now,
+            ":now": now,
+          },
+        }),
+      );
 
       res.json({
         success: true,
@@ -659,7 +697,7 @@ router.post(
     } catch (error) {
       console.error(
         "Error rejecting registration:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -668,7 +706,7 @@ router.post(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // ============================================
@@ -684,35 +722,40 @@ router.get("/users", async (req: AuthenticatedRequest, res: Response) => {
 
     let allItems: Record<string, unknown>[];
 
-    if (role && typeof role === 'string') {
+    if (role && typeof role === "string") {
       // Use GSI to filter by role
-      const result = await client.send(new QueryCommand({
-        TableName: TABLES.USERS,
-        IndexName: GSI.USERS_BY_ROLE,
-        KeyConditionExpression: '#role = :role',
-        ExpressionAttributeNames: { '#role': 'role' },
-        ExpressionAttributeValues: { ':role': role },
-        ScanIndexForward: false,
-      }));
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLES.USERS,
+          IndexName: GSI.USERS_BY_ROLE,
+          KeyConditionExpression: "#role = :role",
+          ExpressionAttributeNames: { "#role": "role" },
+          ExpressionAttributeValues: { ":role": role },
+          ScanIndexForward: false,
+        }),
+      );
       allItems = result.Items || [];
     } else {
       // Scan all users
-      const result = await client.send(new ScanCommand({
-        TableName: TABLES.USERS,
-      }));
+      const result = await client.send(
+        new ScanCommand({
+          TableName: TABLES.USERS,
+        }),
+      );
       allItems = (result.Items || []).sort((a, b) => {
-        const aDate = a.createdAt as string || '';
-        const bDate = b.createdAt as string || '';
+        const aDate = (a.createdAt as string) || "";
+        const bDate = (b.createdAt as string) || "";
         return bDate.localeCompare(aDate);
       });
     }
 
     // Apply search filter in memory
-    if (search && typeof search === 'string' && search.trim()) {
+    if (search && typeof search === "string" && search.trim()) {
       const searchLower = search.toLowerCase().trim();
-      allItems = allItems.filter((item) =>
-        (item.email as string)?.toLowerCase().includes(searchLower) ||
-        (item.displayName as string)?.toLowerCase().includes(searchLower)
+      allItems = allItems.filter(
+        (item) =>
+          (item.email as string)?.toLowerCase().includes(searchLower) ||
+          (item.displayName as string)?.toLowerCase().includes(searchLower),
       );
     }
 
@@ -738,7 +781,10 @@ router.get("/users", async (req: AuthenticatedRequest, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("Error fetching users:", (error as any)?.message || String(error));
+    console.error(
+      "Error fetching users:",
+      (error as any)?.message || String(error),
+    );
     res.status(500).json({
       success: false,
       data: null,
@@ -775,10 +821,12 @@ router.put(
         });
       }
 
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.USERS,
-        Key: { uid: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.USERS,
+          Key: { uid: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -789,17 +837,20 @@ router.put(
         });
       }
 
-      await client.send(new UpdateCommand({
-        TableName: TABLES.USERS,
-        Key: { uid: id },
-        UpdateExpression: 'SET #role = :role, municipalityId = :mid, updatedAt = :now',
-        ExpressionAttributeNames: { '#role': 'role' },
-        ExpressionAttributeValues: {
-          ':role': role,
-          ':mid': role === "municipality" ? municipalityId : null,
-          ':now': new Date().toISOString(),
-        },
-      }));
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.USERS,
+          Key: { uid: id },
+          UpdateExpression:
+            "SET #role = :role, municipalityId = :mid, updatedAt = :now",
+          ExpressionAttributeNames: { "#role": "role" },
+          ExpressionAttributeValues: {
+            ":role": role,
+            ":mid": role === "municipality" ? municipalityId : null,
+            ":now": new Date().toISOString(),
+          },
+        }),
+      );
 
       res.json({
         success: true,
@@ -814,7 +865,7 @@ router.put(
     } catch (error) {
       console.error(
         "Error updating user role:",
-        (error as any)?.message || String(error)
+        (error as any)?.message || String(error),
       );
       res.status(500).json({
         success: false,
@@ -823,7 +874,7 @@ router.put(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // ============================================
@@ -831,136 +882,148 @@ router.put(
 // ============================================
 
 // Update an issue
-router.put(
-  "/issues/:id",
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const client = getDocClient();
-      const { id } = req.params;
-      const { description, status, type, location, imageUrls } = req.body;
+router.put("/issues/:id", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const client = getDocClient();
+    const { id } = req.params;
+    const { description, status, type, location, imageUrls } = req.body;
 
-      const getResult = await client.send(new GetCommand({
+    const getResult = await client.send(
+      new GetCommand({
         TableName: TABLES.ISSUES,
         Key: { issueId: id },
-      }));
+      }),
+    );
 
-      if (!getResult.Item) {
-        return res.status(404).json({
+    if (!getResult.Item) {
+      return res.status(404).json({
+        success: false,
+        data: null,
+        error: "Issue not found",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const issueData = getResult.Item;
+    const previousStatus = issueData.status;
+    const municipalityId = issueData.municipalityId;
+
+    const expressionParts: string[] = [];
+    const expressionValues: Record<string, unknown> = {};
+    const expressionNames: Record<string, string> = {};
+
+    if (description !== undefined) {
+      expressionParts.push("#description = :description");
+      expressionNames["#description"] = "description";
+      expressionValues[":description"] = description;
+    }
+    if (type !== undefined) {
+      expressionParts.push("#type = :type");
+      expressionNames["#type"] = "type";
+      expressionValues[":type"] = type;
+      expressionParts.push("classifiedType = :classifiedType");
+      expressionValues[":classifiedType"] = type;
+    }
+    if (location !== undefined) {
+      expressionParts.push("#location = :location");
+      expressionNames["#location"] = "location";
+      expressionValues[":location"] = {
+        ...issueData.location,
+        ...location,
+      };
+    }
+    if (imageUrls !== undefined && Array.isArray(imageUrls)) {
+      expressionParts.push("imageUrls = :imageUrls");
+      expressionValues[":imageUrls"] = imageUrls;
+    }
+    if (status !== undefined) {
+      if (!["OPEN", "CLOSED"].includes(status)) {
+        return res.status(400).json({
           success: false,
           data: null,
-          error: "Issue not found",
+          error: "Invalid status. Must be OPEN or CLOSED",
           timestamp: new Date().toISOString(),
         });
       }
+      expressionParts.push("#status = :status");
+      expressionNames["#status"] = "status";
+      expressionValues[":status"] = status;
+    }
 
-      const issueData = getResult.Item;
-      const previousStatus = issueData.status;
-      const municipalityId = issueData.municipalityId;
+    expressionParts.push("updatedAt = :updatedAt");
+    expressionValues[":updatedAt"] = new Date().toISOString();
 
-      const expressionParts: string[] = [];
-      const expressionValues: Record<string, unknown> = {};
-      const expressionNames: Record<string, string> = {};
-
-      if (description !== undefined) {
-        expressionParts.push('#description = :description');
-        expressionNames['#description'] = 'description';
-        expressionValues[':description'] = description;
-      }
-      if (type !== undefined) {
-        expressionParts.push('#type = :type');
-        expressionNames['#type'] = 'type';
-        expressionValues[':type'] = type;
-        expressionParts.push('classifiedType = :classifiedType');
-        expressionValues[':classifiedType'] = type;
-      }
-      if (location !== undefined) {
-        expressionParts.push('#location = :location');
-        expressionNames['#location'] = 'location';
-        expressionValues[':location'] = {
-          ...issueData.location,
-          ...location,
-        };
-      }
-      if (imageUrls !== undefined && Array.isArray(imageUrls)) {
-        expressionParts.push('imageUrls = :imageUrls');
-        expressionValues[':imageUrls'] = imageUrls;
-      }
-      if (status !== undefined) {
-        if (!["OPEN", "CLOSED"].includes(status)) {
-          return res.status(400).json({
-            success: false,
-            data: null,
-            error: "Invalid status. Must be OPEN or CLOSED",
-            timestamp: new Date().toISOString(),
-          });
-        }
-        expressionParts.push('#status = :status');
-        expressionNames['#status'] = 'status';
-        expressionValues[':status'] = status;
-      }
-
-      expressionParts.push('updatedAt = :updatedAt');
-      expressionValues[':updatedAt'] = new Date().toISOString();
-
-      await client.send(new UpdateCommand({
+    await client.send(
+      new UpdateCommand({
         TableName: TABLES.ISSUES,
         Key: { issueId: id },
-        UpdateExpression: `SET ${expressionParts.join(', ')}`,
+        UpdateExpression: `SET ${expressionParts.join(", ")}`,
         ExpressionAttributeValues: expressionValues,
         ...(Object.keys(expressionNames).length > 0
           ? { ExpressionAttributeNames: expressionNames }
           : {}),
-      }));
+      }),
+    );
 
-      // Update municipality resolved count if status changed
-      if (status && status !== previousStatus && municipalityId) {
-        const muniResult = await client.send(new GetCommand({
+    // Update municipality resolved count if status changed
+    if (status && status !== previousStatus && municipalityId) {
+      const muniResult = await client.send(
+        new GetCommand({
           TableName: TABLES.MUNICIPALITIES,
           Key: { municipalityId },
-        }));
+        }),
+      );
 
-        if (muniResult.Item) {
-          const muniData = muniResult.Item;
-          let resolvedChange = 0;
+      if (muniResult.Item) {
+        const muniData = muniResult.Item;
+        let resolvedChange = 0;
 
-          if (status === "CLOSED" && previousStatus !== "CLOSED") {
-            resolvedChange = 1;
-          } else if (status !== "CLOSED" && previousStatus === "CLOSED") {
-            resolvedChange = -1;
-          }
+        if (status === "CLOSED" && previousStatus !== "CLOSED") {
+          resolvedChange = 1;
+        } else if (status !== "CLOSED" && previousStatus === "CLOSED") {
+          resolvedChange = -1;
+        }
 
-          if (resolvedChange !== 0) {
-            const newResolved = Math.max(0, ((muniData.resolvedIssues as number) || 0) + resolvedChange);
-            await client.send(new UpdateCommand({
+        if (resolvedChange !== 0) {
+          const newResolved = Math.max(
+            0,
+            ((muniData.resolvedIssues as number) || 0) + resolvedChange,
+          );
+          await client.send(
+            new UpdateCommand({
               TableName: TABLES.MUNICIPALITIES,
               Key: { municipalityId },
-              UpdateExpression: 'SET resolvedIssues = :resolved, updatedAt = :now',
+              UpdateExpression:
+                "SET resolvedIssues = :resolved, updatedAt = :now",
               ExpressionAttributeValues: {
-                ':resolved': newResolved,
-                ':now': new Date().toISOString(),
+                ":resolved": newResolved,
+                ":now": new Date().toISOString(),
               },
-            }));
-          }
+            }),
+          );
         }
       }
-
-      res.json({
-        success: true,
-        data: { id, description, status, type, location, imageUrls },
-        error: null,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("Error updating issue:", (error as any)?.message || String(error));
-      res.status(500).json({
-        success: false,
-        data: null,
-        error: "Failed to update issue",
-        timestamp: new Date().toISOString(),
-      });
     }
+
+    res.json({
+      success: true,
+      data: { id, description, status, type, location, imageUrls },
+      error: null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error(
+      "Error updating issue:",
+      (error as any)?.message || String(error),
+    );
+    res.status(500).json({
+      success: false,
+      data: null,
+      error: "Failed to update issue",
+      timestamp: new Date().toISOString(),
+    });
   }
-);
+});
 
 // Delete an issue
 router.delete(
@@ -970,10 +1033,12 @@ router.delete(
       const client = getDocClient();
       const { id } = req.params;
 
-      const getResult = await client.send(new GetCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId: id },
-      }));
+      const getResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId: id },
+        }),
+      );
 
       if (!getResult.Item) {
         return res.status(404).json({
@@ -987,36 +1052,46 @@ router.delete(
       const issueData = getResult.Item;
       const municipalityId = issueData.municipalityId as string;
 
-      await client.send(new DeleteCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId: id },
-      }));
+      await client.send(
+        new DeleteCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId: id },
+        }),
+      );
 
       // Update municipality counts
       if (municipalityId) {
-        const muniResult = await client.send(new GetCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId },
-        }));
+        const muniResult = await client.send(
+          new GetCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId },
+          }),
+        );
 
         if (muniResult.Item) {
           const muniData = muniResult.Item;
           const wasResolved = issueData.status === "CLOSED";
-          const newTotal = Math.max(0, ((muniData.totalIssues as number) || 1) - 1);
+          const newTotal = Math.max(
+            0,
+            ((muniData.totalIssues as number) || 1) - 1,
+          );
           const newResolved = wasResolved
             ? Math.max(0, ((muniData.resolvedIssues as number) || 1) - 1)
             : (muniData.resolvedIssues as number) || 0;
 
-          await client.send(new UpdateCommand({
-            TableName: TABLES.MUNICIPALITIES,
-            Key: { municipalityId },
-            UpdateExpression: 'SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now',
-            ExpressionAttributeValues: {
-              ':total': newTotal,
-              ':resolved': newResolved,
-              ':now': new Date().toISOString(),
-            },
-          }));
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLES.MUNICIPALITIES,
+              Key: { municipalityId },
+              UpdateExpression:
+                "SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now",
+              ExpressionAttributeValues: {
+                ":total": newTotal,
+                ":resolved": newResolved,
+                ":now": new Date().toISOString(),
+              },
+            }),
+          );
         }
       }
 
@@ -1027,7 +1102,10 @@ router.delete(
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error deleting issue:", (error as any)?.message || String(error));
+      console.error(
+        "Error deleting issue:",
+        (error as any)?.message || String(error),
+      );
       res.status(500).json({
         success: false,
         data: null,
@@ -1035,7 +1113,7 @@ router.delete(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // ============================================
@@ -1050,32 +1128,42 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     // Get counts in parallel using ScanCommand with Select: 'COUNT'
     const [usersCount, municipalitiesCount, issuesCount, pendingRegistrations] =
       await Promise.all([
-        client.send(new ScanCommand({
-          TableName: TABLES.USERS,
-          Select: 'COUNT',
-        })),
-        client.send(new ScanCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Select: 'COUNT',
-        })),
-        client.send(new ScanCommand({
-          TableName: TABLES.ISSUES,
-          Select: 'COUNT',
-        })),
-        client.send(new QueryCommand({
-          TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
-          IndexName: GSI.REGISTRATIONS_BY_STATUS,
-          KeyConditionExpression: '#status = :status',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':status': 'PENDING' },
-          Select: 'COUNT',
-        })),
+        client.send(
+          new ScanCommand({
+            TableName: TABLES.USERS,
+            Select: "COUNT",
+          }),
+        ),
+        client.send(
+          new ScanCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Select: "COUNT",
+          }),
+        ),
+        client.send(
+          new ScanCommand({
+            TableName: TABLES.ISSUES,
+            Select: "COUNT",
+          }),
+        ),
+        client.send(
+          new QueryCommand({
+            TableName: TABLES.MUNICIPALITY_REGISTRATIONS,
+            IndexName: GSI.REGISTRATIONS_BY_STATUS,
+            KeyConditionExpression: "#status = :status",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: { ":status": "PENDING" },
+            Select: "COUNT",
+          }),
+        ),
       ]);
 
     // Get all issues for detailed analytics
-    const issuesScan = await client.send(new ScanCommand({
-      TableName: TABLES.ISSUES,
-    }));
+    const issuesScan = await client.send(
+      new ScanCommand({
+        TableName: TABLES.ISSUES,
+      }),
+    );
 
     const allIssues = issuesScan.Items || [];
 
@@ -1085,7 +1173,10 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     };
 
     const issuesByType: Record<string, number> = {};
-    const issuesByMunicipality: Record<string, { count: number; name?: string }> = {};
+    const issuesByMunicipality: Record<
+      string,
+      { count: number; name?: string }
+    > = {};
     const issuesLast7Days: Record<string, number> = {};
     const issuesLast30Days: Record<string, number> = {};
 
@@ -1093,7 +1184,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = date.toISOString().split("T")[0];
       issuesLast7Days[dateStr] = 0;
     }
 
@@ -1101,7 +1192,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     for (let i = 29; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = date.toISOString().split("T")[0];
       issuesLast30Days[dateStr] = 0;
     }
 
@@ -1116,7 +1207,9 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
       const type = data.type as string;
       const municipalityId = data.municipalityId as string;
       const createdAt = new Date(data.createdAt as string);
-      const closedAt = data.resolvedAt ? new Date(data.resolvedAt as string) : null;
+      const closedAt = data.resolvedAt
+        ? new Date(data.resolvedAt as string)
+        : null;
 
       // Status breakdown
       if (status === "OPEN") {
@@ -1140,7 +1233,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
 
       // Issues trend (last 7 days)
       if (createdAt >= sevenDaysAgo) {
-        const dateStr = createdAt.toISOString().split('T')[0];
+        const dateStr = createdAt.toISOString().split("T")[0];
         if (issuesLast7Days[dateStr] !== undefined) {
           issuesLast7Days[dateStr]++;
         }
@@ -1148,7 +1241,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
 
       // Issues trend (last 30 days)
       if (createdAt >= thirtyDaysAgo) {
-        const dateStr = createdAt.toISOString().split('T')[0];
+        const dateStr = createdAt.toISOString().split("T")[0];
         if (issuesLast30Days[dateStr] !== undefined) {
           issuesLast30Days[dateStr]++;
         }
@@ -1172,14 +1265,19 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
 
     if (topMunicipalityIds.length > 0) {
       const muniPromises = topMunicipalityIds.map((id) =>
-        client.send(new GetCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId: id },
-        }))
+        client.send(
+          new GetCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId: id },
+          }),
+        ),
       );
       const muniResults = await Promise.all(muniPromises);
       muniResults.forEach((result) => {
-        if (result.Item && issuesByMunicipality[result.Item.municipalityId as string]) {
+        if (
+          result.Item &&
+          issuesByMunicipality[result.Item.municipalityId as string]
+        ) {
           issuesByMunicipality[result.Item.municipalityId as string].name =
             (result.Item.name as string) || "Unknown";
         }
@@ -1187,27 +1285,33 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     }
 
     // Calculate average resolution time (in hours)
-    const avgResolutionTimeHours = resolvedCount > 0
-      ? Math.round(totalResolutionTime / resolvedCount / (1000 * 60 * 60))
-      : 0;
+    const avgResolutionTimeHours =
+      resolvedCount > 0
+        ? Math.round(totalResolutionTime / resolvedCount / (1000 * 60 * 60))
+        : 0;
 
     // Resolution rate
     const totalIssues = allIssues.length;
-    const resolutionRate = totalIssues > 0
-      ? Math.round((statusBreakdown.CLOSED / totalIssues) * 100)
-      : 0;
+    const resolutionRate =
+      totalIssues > 0
+        ? Math.round((statusBreakdown.CLOSED / totalIssues) * 100)
+        : 0;
 
     // Format issues trend for frontend
-    const issuesTrend = Object.entries(issuesLast7Days).map(([date, count]) => ({
-      date,
-      count,
-      label: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
-    }));
+    const issuesTrend = Object.entries(issuesLast7Days).map(
+      ([date, count]) => ({
+        date,
+        count,
+        label: new Date(date).toLocaleDateString("en-US", { weekday: "short" }),
+      }),
+    );
 
-    const issuesTrend30Days = Object.entries(issuesLast30Days).map(([date, count]) => ({
-      date,
-      count,
-    }));
+    const issuesTrend30Days = Object.entries(issuesLast30Days).map(
+      ([date, count]) => ({
+        date,
+        count,
+      }),
+    );
 
     // Top 5 municipalities by issue count
     const topMunicipalities = Object.entries(issuesByMunicipality)
@@ -1224,7 +1328,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
     try {
       const mlResponse = await fetch(
         `${process.env.ML_SERVICE_URL || "http://localhost:8000"}/health`,
-        { signal: AbortSignal.timeout(2000) }
+        { signal: AbortSignal.timeout(2000) },
       );
       if (mlResponse.ok) {
         mlServiceStatus = "healthy";
@@ -1264,7 +1368,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
   } catch (error) {
     console.error(
       "Error fetching admin stats:",
-      (error as any)?.message || String(error)
+      (error as any)?.message || String(error),
     );
     res.status(500).json({
       success: false,

@@ -36,14 +36,16 @@ async function recalculateMunicipalityScore(municipalityId: string) {
   const client = getDocClient();
 
   // Get all open issues for this municipality
-  const openResult = await client.send(new QueryCommand({
-    TableName: TABLES.ISSUES,
-    IndexName: GSI.ISSUES_BY_MUNICIPALITY,
-    KeyConditionExpression: 'municipalityId = :mid',
-    FilterExpression: '#status = :status',
-    ExpressionAttributeNames: { '#status': 'status' },
-    ExpressionAttributeValues: { ':mid': municipalityId, ':status': 'OPEN' },
-  }));
+  const openResult = await client.send(
+    new QueryCommand({
+      TableName: TABLES.ISSUES,
+      IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+      KeyConditionExpression: "municipalityId = :mid",
+      FilterExpression: "#status = :status",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":mid": municipalityId, ":status": "OPEN" },
+    }),
+  );
 
   const openIssues = (openResult.Items || []).map((item) => ({
     id: item.issueId,
@@ -51,15 +53,20 @@ async function recalculateMunicipalityScore(municipalityId: string) {
   }));
 
   // Get count of closed issues
-  const closedResult = await client.send(new QueryCommand({
-    TableName: TABLES.ISSUES,
-    IndexName: GSI.ISSUES_BY_MUNICIPALITY,
-    KeyConditionExpression: 'municipalityId = :mid',
-    FilterExpression: '#status = :status',
-    ExpressionAttributeNames: { '#status': 'status' },
-    ExpressionAttributeValues: { ':mid': municipalityId, ':status': 'CLOSED' },
-    Select: 'COUNT',
-  }));
+  const closedResult = await client.send(
+    new QueryCommand({
+      TableName: TABLES.ISSUES,
+      IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+      KeyConditionExpression: "municipalityId = :mid",
+      FilterExpression: "#status = :status",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":mid": municipalityId,
+        ":status": "CLOSED",
+      },
+      Select: "COUNT",
+    }),
+  );
 
   const closedCount = closedResult.Count || 0;
 
@@ -67,15 +74,17 @@ async function recalculateMunicipalityScore(municipalityId: string) {
   const { score } = calculateMunicipalityScore(openIssues, closedCount);
 
   // Update municipality score
-  await client.send(new UpdateCommand({
-    TableName: TABLES.MUNICIPALITIES,
-    Key: { municipalityId },
-    UpdateExpression: 'SET score = :score, updatedAt = :now',
-    ExpressionAttributeValues: {
-      ':score': score,
-      ':now': new Date().toISOString(),
-    },
-  }));
+  await client.send(
+    new UpdateCommand({
+      TableName: TABLES.MUNICIPALITIES,
+      Key: { municipalityId },
+      UpdateExpression: "SET score = :score, updatedAt = :now",
+      ExpressionAttributeValues: {
+        ":score": score,
+        ":now": new Date().toISOString(),
+      },
+    }),
+  );
 
   return score;
 }
@@ -94,26 +103,30 @@ router.get("/", async (req: Request, res: Response) => {
 
     if (filters.municipalityId) {
       // Use GSI for municipality filter
-      const result = await client.send(new QueryCommand({
-        TableName: TABLES.ISSUES,
-        IndexName: GSI.ISSUES_BY_MUNICIPALITY,
-        KeyConditionExpression: 'municipalityId = :mid',
-        ExpressionAttributeValues: { ':mid': filters.municipalityId },
-        ScanIndexForward: false,
-        Limit: 500,
-      }));
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLES.ISSUES,
+          IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+          KeyConditionExpression: "municipalityId = :mid",
+          ExpressionAttributeValues: { ":mid": filters.municipalityId },
+          ScanIndexForward: false,
+          Limit: 500,
+        }),
+      );
       items = result.Items || [];
     } else {
       // Scan all issues, sorted by createdAt desc
-      const result = await client.send(new QueryCommand({
-        TableName: TABLES.ISSUES,
-        IndexName: GSI.ISSUES_BY_CREATED,
-        KeyConditionExpression: '#pk = :pk',
-        ExpressionAttributeNames: { '#pk': '_pk' },
-        ExpressionAttributeValues: { ':pk': 'ALL' },
-        ScanIndexForward: false,
-        Limit: 500,
-      }));
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLES.ISSUES,
+          IndexName: GSI.ISSUES_BY_CREATED,
+          KeyConditionExpression: "#pk = :pk",
+          ExpressionAttributeNames: { "#pk": "_pk" },
+          ExpressionAttributeValues: { ":pk": "ALL" },
+          ScanIndexForward: false,
+          Limit: 500,
+        }),
+      );
       items = result.Items || [];
     }
 
@@ -184,28 +197,34 @@ router.get("/stats", async (_req: Request, res: Response) => {
     const client = getDocClient();
 
     // Get total issues count
-    const totalResult = await client.send(new ScanCommand({
-      TableName: TABLES.ISSUES,
-      Select: 'COUNT',
-    }));
+    const totalResult = await client.send(
+      new ScanCommand({
+        TableName: TABLES.ISSUES,
+        Select: "COUNT",
+      }),
+    );
     const totalIssues = totalResult.Count || 0;
 
     // Get resolved issues count
-    const resolvedResult = await client.send(new QueryCommand({
-      TableName: TABLES.ISSUES,
-      IndexName: GSI.ISSUES_BY_STATUS,
-      KeyConditionExpression: '#status = :status',
-      ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: { ':status': 'CLOSED' },
-      Select: 'COUNT',
-    }));
+    const resolvedResult = await client.send(
+      new QueryCommand({
+        TableName: TABLES.ISSUES,
+        IndexName: GSI.ISSUES_BY_STATUS,
+        KeyConditionExpression: "#status = :status",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: { ":status": "CLOSED" },
+        Select: "COUNT",
+      }),
+    );
     const resolvedIssues = resolvedResult.Count || 0;
 
     // Get municipalities count
-    const muniResult = await client.send(new ScanCommand({
-      TableName: TABLES.MUNICIPALITIES,
-      Select: 'COUNT',
-    }));
+    const muniResult = await client.send(
+      new ScanCommand({
+        TableName: TABLES.MUNICIPALITIES,
+        Select: "COUNT",
+      }),
+    );
     const totalMunicipalities = muniResult.Count || 0;
 
     res.json({
@@ -221,7 +240,10 @@ router.get("/stats", async (_req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error("Error fetching global stats:", error?.message || String(error));
+    console.error(
+      "Error fetching global stats:",
+      error?.message || String(error),
+    );
     res.status(500).json({
       success: false,
       data: null,
@@ -234,10 +256,12 @@ router.get("/stats", async (_req: Request, res: Response) => {
 // Get single issue (public)
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const result = await getDocClient().send(new GetCommand({
-      TableName: TABLES.ISSUES,
-      Key: { issueId: req.params.id },
-    }));
+    const result = await getDocClient().send(
+      new GetCommand({
+        TableName: TABLES.ISSUES,
+        Key: { issueId: req.params.id },
+      }),
+    );
 
     if (!result.Item) {
       return res.status(404).json({
@@ -286,19 +310,21 @@ router.get("/map/bounds", async (req: Request, res: Response) => {
     }
 
     // Scan with filter for latitude range, then filter longitude in memory
-    const result = await client.send(new ScanCommand({
-      TableName: TABLES.ISSUES,
-      FilterExpression: '#loc.#lat BETWEEN :south AND :north',
-      ExpressionAttributeNames: {
-        '#loc': 'location',
-        '#lat': 'latitude',
-      },
-      ExpressionAttributeValues: {
-        ':south': parseFloat(south as string),
-        ':north': parseFloat(north as string),
-      },
-      Limit: 500,
-    }));
+    const result = await client.send(
+      new ScanCommand({
+        TableName: TABLES.ISSUES,
+        FilterExpression: "#loc.#lat BETWEEN :south AND :north",
+        ExpressionAttributeNames: {
+          "#loc": "location",
+          "#lat": "latitude",
+        },
+        ExpressionAttributeValues: {
+          ":south": parseFloat(south as string),
+          ":north": parseFloat(north as string),
+        },
+        Limit: 500,
+      }),
+    );
 
     const issues = (result.Items || [])
       .map((item) => ({
@@ -319,7 +345,10 @@ router.get("/map/bounds", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error("Error fetching map issues:", error?.message || String(error));
+    console.error(
+      "Error fetching map issues:",
+      error?.message || String(error),
+    );
     res.status(500).json({
       success: false,
       data: null,
@@ -348,7 +377,7 @@ router.post("/", async (req: Request, res: Response) => {
         if (classification && classification.confidence > 0.7) {
           classifiedType = classification.type as Issue["type"];
           console.log(
-            `Issue classified as ${classifiedType} with confidence ${classification.confidence}`
+            `Issue classified as ${classifiedType} with confidence ${classification.confidence}`,
           );
         }
       } catch (err) {
@@ -364,18 +393,23 @@ router.post("/", async (req: Request, res: Response) => {
       state?: string;
     } | null = null;
     try {
-      const municipalityMatch = await findMunicipalityForLocation(latitude, longitude);
+      const municipalityMatch = await findMunicipalityForLocation(
+        latitude,
+        longitude,
+      );
       if (municipalityMatch) {
         municipalityId = municipalityMatch.municipalityId;
         console.log(
-          `Issue assigned to municipality ${municipalityMatch.name} (${municipalityMatch.matchType})`
+          `Issue assigned to municipality ${municipalityMatch.name} (${municipalityMatch.matchType})`,
         );
 
         // Get municipality data for region fallback
-        const muniResult = await client.send(new GetCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId },
-        }));
+        const muniResult = await client.send(
+          new GetCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId },
+          }),
+        );
         if (muniResult.Item) {
           municipalityData = {
             name: muniResult.Item.name || municipalityMatch.name,
@@ -430,7 +464,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     const issue = {
       issueId,
-      _pk: 'ALL', // Partition key for global GSIs
+      _pk: "ALL", // Partition key for global GSIs
       type: classifiedType,
       description: input.description,
       imageUrl: input.imageUrl || (imageUrls.length > 0 ? imageUrls[0] : null),
@@ -444,20 +478,26 @@ router.post("/", async (req: Request, res: Response) => {
       resolution: null,
     };
 
-    await client.send(new PutCommand({
-      TableName: TABLES.ISSUES,
-      Item: issue,
-    }));
+    await client.send(
+      new PutCommand({
+        TableName: TABLES.ISSUES,
+        Item: issue,
+      }),
+    );
 
     // Update municipality stats (atomic increment)
-    await client.send(new UpdateCommand({
-      TableName: TABLES.MUNICIPALITIES,
-      Key: { municipalityId },
-      UpdateExpression: 'ADD totalIssues :inc SET updatedAt = :now',
-      ExpressionAttributeValues: { ':inc': 1, ':now': now },
-    })).catch(() => {
-      // Municipality might not exist yet
-    });
+    await client
+      .send(
+        new UpdateCommand({
+          TableName: TABLES.MUNICIPALITIES,
+          Key: { municipalityId },
+          UpdateExpression: "ADD totalIssues :inc SET updatedAt = :now",
+          ExpressionAttributeValues: { ":inc": 1, ":now": now },
+        }),
+      )
+      .catch(() => {
+        // Municipality might not exist yet
+      });
 
     // Recalculate municipality score
     await recalculateMunicipalityScore(municipalityId).catch(() => {});
@@ -518,10 +558,12 @@ router.post(
       const client = getDocClient();
 
       // Get the issue
-      const issueResult = await client.send(new GetCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId: id },
-      }));
+      const issueResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId: id },
+        }),
+      );
 
       if (!issueResult.Item) {
         return res.status(404).json({
@@ -546,42 +588,50 @@ router.post(
 
       const now = new Date().toISOString();
 
-      await client.send(new UpdateCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId: id },
-        UpdateExpression: 'SET #status = :status, municipalityResponse = :resp, resolution = :resolution, resolvedAt = :now, updatedAt = :now',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':status': 'CLOSED',
-          ':resp': responseText || resolutionNote,
-          ':resolution': {
-            resolutionImageUrl: resolutionImageUrl || null,
-            resolutionNote: responseText || resolutionNote,
-            respondedAt: now,
-            respondedBy: req.user?.uid,
-            verificationScore: null,
-            verifiedAt: null,
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId: id },
+          UpdateExpression:
+            "SET #status = :status, municipalityResponse = :resp, resolution = :resolution, resolvedAt = :now, updatedAt = :now",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: {
+            ":status": "CLOSED",
+            ":resp": responseText || resolutionNote,
+            ":resolution": {
+              resolutionImageUrl: resolutionImageUrl || null,
+              resolutionNote: responseText || resolutionNote,
+              respondedAt: now,
+              respondedBy: req.user?.uid,
+              verificationScore: null,
+              verifiedAt: null,
+            },
+            ":now": now,
           },
-          ':now': now,
-        },
-      }));
+        }),
+      );
 
       // Update municipality resolved issues counter
       if (issue.status === "OPEN" && issue.municipalityId) {
-        const muniResult = await client.send(new GetCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId: issue.municipalityId },
-        }));
-        if (muniResult.Item) {
-          await client.send(new UpdateCommand({
+        const muniResult = await client.send(
+          new GetCommand({
             TableName: TABLES.MUNICIPALITIES,
             Key: { municipalityId: issue.municipalityId },
-            UpdateExpression: 'SET resolvedIssues = :resolved, updatedAt = :now',
-            ExpressionAttributeValues: {
-              ':resolved': (muniResult.Item.resolvedIssues || 0) + 1,
-              ':now': now,
-            },
-          }));
+          }),
+        );
+        if (muniResult.Item) {
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLES.MUNICIPALITIES,
+              Key: { municipalityId: issue.municipalityId },
+              UpdateExpression:
+                "SET resolvedIssues = :resolved, updatedAt = :now",
+              ExpressionAttributeValues: {
+                ":resolved": (muniResult.Item.resolvedIssues || 0) + 1,
+                ":now": now,
+              },
+            }),
+          );
           await recalculateMunicipalityScore(issue.municipalityId);
         }
       }
@@ -593,13 +643,18 @@ router.post(
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error("Error responding to issue:", error?.message || String(error));
+      console.error(
+        "Error responding to issue:",
+        error?.message || String(error),
+      );
 
       if (error.name === "ZodError") {
         return res.status(400).json({
           success: false,
           data: null,
-          error: "Validation failed: " + error.errors.map((e: any) => e.message).join(", "),
+          error:
+            "Validation failed: " +
+            error.errors.map((e: any) => e.message).join(", "),
           timestamp: new Date().toISOString(),
         });
       }
@@ -611,7 +666,7 @@ router.post(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Update issue status (municipality user only)
@@ -637,10 +692,12 @@ router.patch(
 
       const client = getDocClient();
 
-      const issueResult = await client.send(new GetCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId: id },
-      }));
+      const issueResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId: id },
+        }),
+      );
 
       if (!issueResult.Item) {
         return res.status(404).json({
@@ -663,37 +720,47 @@ router.patch(
       }
 
       const now = new Date().toISOString();
-      let updateExpr = 'SET #status = :status, updatedAt = :now';
-      const exprValues: Record<string, any> = { ':status': status, ':now': now };
+      let updateExpr = "SET #status = :status, updatedAt = :now";
+      const exprValues: Record<string, any> = {
+        ":status": status,
+        ":now": now,
+      };
 
       if (status === "CLOSED") {
-        updateExpr += ', resolvedAt = :now';
+        updateExpr += ", resolvedAt = :now";
       }
 
-      await client.send(new UpdateCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId: id },
-        UpdateExpression: updateExpr,
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: exprValues,
-      }));
+      await client.send(
+        new UpdateCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId: id },
+          UpdateExpression: updateExpr,
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: exprValues,
+        }),
+      );
 
       // Update municipality stats if resolved
       if (status === "CLOSED" && issue.municipalityId) {
-        const muniResult = await client.send(new GetCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId: issue.municipalityId },
-        }));
-        if (muniResult.Item) {
-          await client.send(new UpdateCommand({
+        const muniResult = await client.send(
+          new GetCommand({
             TableName: TABLES.MUNICIPALITIES,
             Key: { municipalityId: issue.municipalityId },
-            UpdateExpression: 'SET resolvedIssues = :resolved, updatedAt = :now',
-            ExpressionAttributeValues: {
-              ':resolved': (muniResult.Item.resolvedIssues || 0) + 1,
-              ':now': now,
-            },
-          }));
+          }),
+        );
+        if (muniResult.Item) {
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLES.MUNICIPALITIES,
+              Key: { municipalityId: issue.municipalityId },
+              UpdateExpression:
+                "SET resolvedIssues = :resolved, updatedAt = :now",
+              ExpressionAttributeValues: {
+                ":resolved": (muniResult.Item.resolvedIssues || 0) + 1,
+                ":now": now,
+              },
+            }),
+          );
         }
       }
 
@@ -704,7 +771,10 @@ router.patch(
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error("Error updating issue status:", error?.message || String(error));
+      console.error(
+        "Error updating issue status:",
+        error?.message || String(error),
+      );
       res.status(500).json({
         success: false,
         data: null,
@@ -712,7 +782,7 @@ router.patch(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 // Recalculate all municipality scores
@@ -721,76 +791,92 @@ router.post(
   authMiddleware,
   requireRole("PLATFORM_MAINTAINER"),
   async (_req: AuthenticatedRequest, res: Response) => {
-  try {
-    const client = getDocClient();
+    try {
+      const client = getDocClient();
 
-    const muniResult = await client.send(new ScanCommand({
-      TableName: TABLES.MUNICIPALITIES,
-    }));
-
-    const results: {
-      municipalityId: string;
-      name: string;
-      oldScore: number;
-      newScore: number;
-    }[] = [];
-
-    for (const muni of muniResult.Items || []) {
-      const oldScore = muni.score || 0;
-
-      try {
-        // Recalculate totalIssues and resolvedIssues from actual issues
-        const allIssuesResult = await client.send(new QueryCommand({
-          TableName: TABLES.ISSUES,
-          IndexName: GSI.ISSUES_BY_MUNICIPALITY,
-          KeyConditionExpression: 'municipalityId = :mid',
-          ExpressionAttributeValues: { ':mid': muni.municipalityId },
-        }));
-
-        const totalIssues = allIssuesResult.Items?.length || 0;
-        const resolvedIssues = (allIssuesResult.Items || []).filter(
-          (i: any) => i.status === 'CLOSED'
-        ).length;
-
-        await client.send(new UpdateCommand({
+      const muniResult = await client.send(
+        new ScanCommand({
           TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId: muni.municipalityId },
-          UpdateExpression: 'SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now',
-          ExpressionAttributeValues: {
-            ':total': totalIssues,
-            ':resolved': resolvedIssues,
-            ':now': new Date().toISOString(),
-          },
-        }));
+        }),
+      );
 
-        const newScore = await recalculateMunicipalityScore(muni.municipalityId);
-        results.push({
-          municipalityId: muni.municipalityId,
-          name: muni.name,
-          oldScore,
-          newScore,
-        });
-      } catch (err) {
-        console.error(`Failed to recalculate score for ${muni.municipalityId}:`, err);
+      const results: {
+        municipalityId: string;
+        name: string;
+        oldScore: number;
+        newScore: number;
+      }[] = [];
+
+      for (const muni of muniResult.Items || []) {
+        const oldScore = muni.score || 0;
+
+        try {
+          // Recalculate totalIssues and resolvedIssues from actual issues
+          const allIssuesResult = await client.send(
+            new QueryCommand({
+              TableName: TABLES.ISSUES,
+              IndexName: GSI.ISSUES_BY_MUNICIPALITY,
+              KeyConditionExpression: "municipalityId = :mid",
+              ExpressionAttributeValues: { ":mid": muni.municipalityId },
+            }),
+          );
+
+          const totalIssues = allIssuesResult.Items?.length || 0;
+          const resolvedIssues = (allIssuesResult.Items || []).filter(
+            (i: any) => i.status === "CLOSED",
+          ).length;
+
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLES.MUNICIPALITIES,
+              Key: { municipalityId: muni.municipalityId },
+              UpdateExpression:
+                "SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now",
+              ExpressionAttributeValues: {
+                ":total": totalIssues,
+                ":resolved": resolvedIssues,
+                ":now": new Date().toISOString(),
+              },
+            }),
+          );
+
+          const newScore = await recalculateMunicipalityScore(
+            muni.municipalityId,
+          );
+          results.push({
+            municipalityId: muni.municipalityId,
+            name: muni.name,
+            oldScore,
+            newScore,
+          });
+        } catch (err) {
+          console.error(
+            `Failed to recalculate score for ${muni.municipalityId}:`,
+            err,
+          );
+        }
       }
-    }
 
-    res.json({
-      success: true,
-      data: { updated: results.length, results },
-      error: null,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error: any) {
-    console.error("Error recalculating scores:", error?.message || String(error));
-    res.status(500).json({
-      success: false,
-      data: null,
-      error: "Failed to recalculate scores",
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
+      res.json({
+        success: true,
+        data: { updated: results.length, results },
+        error: null,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error(
+        "Error recalculating scores:",
+        error?.message || String(error),
+      );
+      res.status(500).json({
+        success: false,
+        data: null,
+        error: "Failed to recalculate scores",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  },
+);
 
 // Delete an issue (admin only)
 router.delete(
@@ -802,10 +888,12 @@ router.delete(
       const client = getDocClient();
       const { issueId } = req.params;
 
-      const issueResult = await client.send(new GetCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId },
-      }));
+      const issueResult = await client.send(
+        new GetCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId },
+        }),
+      );
 
       if (!issueResult.Item) {
         return res.status(404).json({
@@ -819,17 +907,21 @@ router.delete(
       const issueData = issueResult.Item;
       const municipalityId = issueData.municipalityId;
 
-      await client.send(new DeleteCommand({
-        TableName: TABLES.ISSUES,
-        Key: { issueId },
-      }));
+      await client.send(
+        new DeleteCommand({
+          TableName: TABLES.ISSUES,
+          Key: { issueId },
+        }),
+      );
 
       // Update municipality stats
       if (municipalityId) {
-        const muniResult = await client.send(new GetCommand({
-          TableName: TABLES.MUNICIPALITIES,
-          Key: { municipalityId },
-        }));
+        const muniResult = await client.send(
+          new GetCommand({
+            TableName: TABLES.MUNICIPALITIES,
+            Key: { municipalityId },
+          }),
+        );
 
         if (muniResult.Item) {
           const muniData = muniResult.Item;
@@ -839,16 +931,19 @@ router.delete(
               ? Math.max(0, (muniData.resolvedIssues || 1) - 1)
               : muniData.resolvedIssues || 0;
 
-          await client.send(new UpdateCommand({
-            TableName: TABLES.MUNICIPALITIES,
-            Key: { municipalityId },
-            UpdateExpression: 'SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now',
-            ExpressionAttributeValues: {
-              ':total': totalIssues,
-              ':resolved': resolvedIssues,
-              ':now': new Date().toISOString(),
-            },
-          }));
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLES.MUNICIPALITIES,
+              Key: { municipalityId },
+              UpdateExpression:
+                "SET totalIssues = :total, resolvedIssues = :resolved, updatedAt = :now",
+              ExpressionAttributeValues: {
+                ":total": totalIssues,
+                ":resolved": resolvedIssues,
+                ":now": new Date().toISOString(),
+              },
+            }),
+          );
 
           await recalculateMunicipalityScore(municipalityId);
         }
@@ -869,7 +964,7 @@ router.delete(
         timestamp: new Date().toISOString(),
       });
     }
-  }
+  },
 );
 
 export { router as issueRoutes };

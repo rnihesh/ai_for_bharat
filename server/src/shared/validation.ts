@@ -115,10 +115,9 @@ export const respondToIssueInputSchema = z.object({
 
 // Helper to handle query params that can be string or string[]
 const stringOrArraySchema = <T extends z.ZodTypeAny>(itemSchema: T) =>
-  z.union([
-    z.array(itemSchema),
-    itemSchema.transform((val) => [val]),
-  ]).optional();
+  z
+    .union([z.array(itemSchema), itemSchema.transform((val) => [val])])
+    .optional();
 
 export const issueFiltersSchema = z.object({
   status: stringOrArraySchema(issueStatusSchema),
@@ -235,7 +234,7 @@ export const classificationResultSchema = z.object({
     z.object({
       type: issueTypeSchema,
       confidence: z.number().min(0).max(1),
-    })
+    }),
   ),
 });
 

@@ -19,9 +19,17 @@ function isAllowedImageUrl(imageUrl: string): boolean {
     if (parsed.protocol !== "https:") return false;
     const host = parsed.hostname.toLowerCase();
     // Allow S3 bucket URLs
-    if (host.endsWith(".s3.amazonaws.com") || host.endsWith(".s3.ap-south-1.amazonaws.com")) return true;
+    if (
+      host.endsWith(".s3.amazonaws.com") ||
+      host.endsWith(".s3.ap-south-1.amazonaws.com")
+    )
+      return true;
     // Allow CloudFront
-    if (AWS_CONFIG.cloudfrontDomain && host === AWS_CONFIG.cloudfrontDomain.toLowerCase()) return true;
+    if (
+      AWS_CONFIG.cloudfrontDomain &&
+      host === AWS_CONFIG.cloudfrontDomain.toLowerCase()
+    )
+      return true;
     if (host.endsWith(".cloudfront.net")) return true;
     return false;
   } catch {
@@ -71,7 +79,7 @@ router.post(
   "/",
   async (
     req: Request<object, ClassifyResponse, ClassifyRequest>,
-    res: ExpressResponse<ClassifyResponse>
+    res: ExpressResponse<ClassifyResponse>,
   ) => {
     try {
       const { imageUrl } = req.body;
@@ -94,7 +102,8 @@ router.post(
           issueType: null,
           className: null,
           confidence: 0,
-          message: "Invalid image URL. Only images uploaded to our platform are accepted.",
+          message:
+            "Invalid image URL. Only images uploaded to our platform are accepted.",
         });
       }
 
@@ -117,7 +126,7 @@ router.post(
           "Classification service unavailable. Please select issue type manually.",
       });
     }
-  }
+  },
 );
 
 /**
@@ -143,7 +152,7 @@ router.get("/issue-types", (_req: Request, res: ExpressResponse) => {
  * This is a placeholder until the TensorFlow model is deployed
  */
 async function analyzeImage(
-  imageUrl: string
+  imageUrl: string,
 ): Promise<Omit<ClassifyResponse, "success">> {
   try {
     // Fetch image to verify it exists
@@ -188,7 +197,8 @@ async function analyzeImage(
       issueType: null,
       className: null,
       confidence: 0,
-      message: "Could not analyze image. Please select the issue type manually.",
+      message:
+        "Could not analyze image. Please select the issue type manually.",
     };
   }
 }
