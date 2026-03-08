@@ -124,6 +124,7 @@ export const issueFiltersSchema = z.object({
   status: stringOrArraySchema(issueStatusSchema),
   type: stringOrArraySchema(issueTypeSchema),
   municipalityId: z.string().optional(),
+  search: z.string().optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   bounds: boundsSchema.optional(),

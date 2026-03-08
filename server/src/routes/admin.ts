@@ -1116,7 +1116,7 @@ router.get("/stats", async (req: AuthenticatedRequest, res: Response) => {
       const type = data.type as string;
       const municipalityId = data.municipalityId as string;
       const createdAt = new Date(data.createdAt as string);
-      const closedAt = data.closedAt ? new Date(data.closedAt as string) : null;
+      const closedAt = data.resolvedAt ? new Date(data.resolvedAt as string) : null;
 
       // Status breakdown
       if (status === "OPEN") {

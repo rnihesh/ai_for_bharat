@@ -5,6 +5,7 @@ Provides configurable model integration for chat and vision capabilities
 
 import json
 import base64
+import os
 import httpx
 import boto3
 from typing import List, Dict, Any, Optional
@@ -14,8 +15,30 @@ from config import config
 class BedrockService:
     """Amazon Bedrock API client"""
 
+    # Trusted domains for image fetching (SSRF protection)
+    ALLOWED_IMAGE_HOSTS = (
+        ".s3.amazonaws.com",
+        ".s3.ap-south-1.amazonaws.com",
+        ".cloudfront.net",
+    )
+
     def __init__(self):
         self._client = None
+
+    @staticmethod
+    def _validate_image_url(image_url: str) -> None:
+        """Validate that image URL points to a trusted domain to prevent SSRF."""
+        from urllib.parse import urlparse
+        parsed = urlparse(image_url)
+        if parsed.scheme != "https":
+            raise ValueError("Only HTTPS image URLs are accepted.")
+        host = (parsed.hostname or "").lower()
+        cloudfront_domain = os.environ.get("CLOUDFRONT_DOMAIN", "").lower()
+        if cloudfront_domain and host == cloudfront_domain:
+            return
+        if any(host.endswith(allowed) for allowed in BedrockService.ALLOWED_IMAGE_HOSTS):
+            return
+        raise ValueError(f"Image URL host not allowed: {host}")
 
     @property
     def is_configured(self) -> bool:
@@ -142,6 +165,7 @@ class BedrockService:
             raise ValueError("Bedrock is not configured")
 
         # Download image and convert to base64
+        self._validate_image_url(image_url)
         async with httpx.AsyncClient(timeout=30.0) as http_client:
             img_response = await http_client.get(image_url)
             img_response.raise_for_status()

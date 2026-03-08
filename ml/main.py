@@ -90,6 +90,28 @@ class GenerateDescriptionRequest(BaseModel):
     issueType: Optional[str] = ""
 
 
+# SSRF protection: only allow trusted image domains
+ALLOWED_IMAGE_HOSTS = [
+    ".s3.amazonaws.com",
+    ".s3.ap-south-1.amazonaws.com",
+    ".cloudfront.net",
+]
+
+def validate_image_url(image_url: str) -> None:
+    """Validate that image URL points to a trusted domain to prevent SSRF."""
+    from urllib.parse import urlparse
+    parsed = urlparse(image_url)
+    if parsed.scheme != "https":
+        raise HTTPException(status_code=400, detail="Only HTTPS image URLs are accepted.")
+    host = parsed.hostname.lower() if parsed.hostname else ""
+    cloudfront_domain = os.getenv("CLOUDFRONT_DOMAIN", "").lower()
+    if cloudfront_domain and host == cloudfront_domain:
+        return
+    if any(host.endswith(allowed) for allowed in ALLOWED_IMAGE_HOSTS):
+        return
+    raise HTTPException(status_code=400, detail="Invalid image URL. Only images uploaded to our platform are accepted.")
+
+
 class PredictionResult(BaseModel):
     className: str
     probability: float
@@ -254,6 +276,7 @@ def load_classifier():
 
 def preprocess_image_from_url(image_url: str) -> np.ndarray:
     """Download and preprocess image from URL"""
+    validate_image_url(image_url)
     response = requests.get(image_url, timeout=10)
     response.raise_for_status()
 
@@ -329,6 +352,7 @@ def check_image_quality(img_array: np.ndarray) -> tuple[bool, str]:
 
 def download_image(image_url: str) -> Image.Image:
     """Download image from URL and return PIL Image"""
+    validate_image_url(image_url)
     response = requests.get(image_url, timeout=10)
     response.raise_for_status()
     return Image.open(BytesIO(response.content)).convert("RGB")

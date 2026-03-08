@@ -131,6 +131,23 @@ router.get("/", async (req: Request, res: Response) => {
       issues = issues.filter((issue) => filters.type!.includes(issue.type));
     }
 
+    // Apply search filter (matches description, type, address, or issue ID)
+    if (filters.search && filters.search.trim()) {
+      const query = filters.search.trim().toLowerCase();
+      issues = issues.filter((issue) => {
+        const description = (issue.description || "").toLowerCase();
+        const type = (issue.type || "").toLowerCase();
+        const address = (issue.location?.address || "").toLowerCase();
+        const issueId = (issue.issueId || issue.id || "").toLowerCase();
+        return (
+          description.includes(query) ||
+          type.includes(query) ||
+          address.includes(query) ||
+          issueId.includes(query)
+        );
+      });
+    }
+
     // Get total count for the filtered results
     const total = issues.length;
 
@@ -699,7 +716,11 @@ router.patch(
 );
 
 // Recalculate all municipality scores
-router.post("/recalculate-scores", async (_req: Request, res: Response) => {
+router.post(
+  "/recalculate-scores",
+  authMiddleware,
+  requireRole("PLATFORM_MAINTAINER"),
+  async (_req: AuthenticatedRequest, res: Response) => {
   try {
     const client = getDocClient();
 

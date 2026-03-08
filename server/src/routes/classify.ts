@@ -5,8 +5,29 @@ import {
   ISSUE_TYPE_LABELS,
   IssueType,
 } from "../shared/types";
+import { AWS_CONFIG } from "../shared/aws";
 
 const router: IRouter = Router();
+
+/**
+ * Validate that an image URL points to a trusted domain (S3 or CloudFront).
+ * Blocks SSRF attacks by preventing fetches to arbitrary/internal URLs.
+ */
+function isAllowedImageUrl(imageUrl: string): boolean {
+  try {
+    const parsed = new URL(imageUrl);
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    // Allow S3 bucket URLs
+    if (host.endsWith(".s3.amazonaws.com") || host.endsWith(".s3.ap-south-1.amazonaws.com")) return true;
+    // Allow CloudFront
+    if (AWS_CONFIG.cloudfrontDomain && host === AWS_CONFIG.cloudfrontDomain.toLowerCase()) return true;
+    if (host.endsWith(".cloudfront.net")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 // ML model class names (alphabetically sorted - matches model output order)
 const ML_CLASS_NAMES = [
@@ -63,6 +84,17 @@ router.post(
           className: null,
           confidence: 0,
           message: "Image URL is required",
+        });
+      }
+
+      if (!isAllowedImageUrl(imageUrl)) {
+        return res.status(400).json({
+          success: false,
+          isValid: false,
+          issueType: null,
+          className: null,
+          confidence: 0,
+          message: "Invalid image URL. Only images uploaded to our platform are accepted.",
         });
       }
 
