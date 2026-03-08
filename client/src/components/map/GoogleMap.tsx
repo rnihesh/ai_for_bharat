@@ -273,7 +273,7 @@ export function GoogleMapComponent({
           console.log("Geolocation permission denied, using default location");
           setLocationChecked(true);
         },
-        { timeout: 5000, enableHighAccuracy: true }
+        { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 }
       );
     } else {
       setLocationChecked(true);

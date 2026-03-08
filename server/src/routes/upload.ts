@@ -7,9 +7,10 @@ import { getS3Client, AWS_CONFIG } from "../shared/aws";
 const router: IRouter = Router();
 
 // Generate a presigned upload URL for S3
-router.post("/signature", async (_req: Request, res: Response) => {
+router.post("/presigned-url", async (req: Request, res: Response) => {
   try {
     const s3 = getS3Client();
+    const contentType = req.body?.contentType || "image/jpeg";
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).slice(2, 8);
     const key = `civiclemma/issues/${timestamp}-${randomSuffix}`;
@@ -17,7 +18,7 @@ router.post("/signature", async (_req: Request, res: Response) => {
     const command = new PutObjectCommand({
       Bucket: AWS_CONFIG.s3Bucket,
       Key: key,
-      ContentType: "image/*",
+      ContentType: contentType,
     });
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
@@ -30,7 +31,7 @@ router.post("/signature", async (_req: Request, res: Response) => {
       success: true,
       data: {
         uploadUrl,
-        key,
+        fileKey: key,
         publicUrl,
         bucket: AWS_CONFIG.s3Bucket,
       },

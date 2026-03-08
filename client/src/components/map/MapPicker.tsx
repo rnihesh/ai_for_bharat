@@ -100,7 +100,8 @@ export function MapPicker({
         },
         (error) => {
           console.error("Error getting location:", error);
-        }
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     }
   }, [map, onLocationSelect]);
@@ -131,7 +132,8 @@ export function MapPicker({
         () => {
           // User denied location, stay at default center
           console.log("Geolocation permission denied, using default location");
-        }
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     }
   }, [map, selectedLocation]);
