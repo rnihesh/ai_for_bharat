@@ -17,7 +17,7 @@ load_dotenv(dotenv_path=env_path)
 class BedrockConfig(BaseModel):
     """AWS Bedrock configuration"""
     region: str = os.getenv("AWS_REGION", "ap-south-1")
-    model_id: str = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
+    model_id: str = os.getenv("BEDROCK_MODEL_ID", "apac.amazon.nova-pro-v1:0")
 
     @property
     def is_configured(self) -> bool:
